@@ -51,6 +51,10 @@ is in use, set `PORT`.
 3. `npm run dev`: the app starts and `/health` answers. Unauthenticated `/api`
    and `/mcp` answer `401`.
 
+CI (`.github/workflows/ci.yml`) runs the suite on both Postgres and PGlite,
+smoke-tests the container image, and on `main` pushes the image and opens a
+spark-ops deployment PR. See [docs/ci.md](docs/ci.md).
+
 ## Repository layout
 
 ```
