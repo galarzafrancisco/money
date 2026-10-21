@@ -9,6 +9,14 @@ import { SubaccountsAndCategories1761100000000 } from './migrations/176110000000
 import { Transfers1761200000000 } from './migrations/1761200000000-Transfers';
 import { DailyValuations1761300000000 } from './migrations/1761300000000-DailyValuations';
 import { SaleLotAllocations1761400000000 } from './migrations/1761400000000-SaleLotAllocations';
+import { WebSessions1761500000000 } from './migrations/1761500000000-WebSessions';
 
 export const ENTITIES = [UserEntity, AccountEntity, TransactionEntity, SaleLotAllocationEntity, CategoryEntity, HoldingCategoryEntity, TransferEntity];
-export const MIGRATIONS = [InitialSchema1761000000000, SubaccountsAndCategories1761100000000, Transfers1761200000000, DailyValuations1761300000000, SaleLotAllocations1761400000000];
+export const MIGRATIONS = [
+  InitialSchema1761000000000,
+  SubaccountsAndCategories1761100000000,
+  Transfers1761200000000,
+  DailyValuations1761300000000,
+  SaleLotAllocations1761400000000,
+  WebSessions1761500000000,
+];

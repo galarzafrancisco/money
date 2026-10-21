@@ -2,7 +2,7 @@
 
 This document defines **principles** and **architectural decisions** for Money's React single-page application, which supports both **desktop** and **mobile** (including “pinned” iOS home-screen usage). It is designed to keep the codebase consistent as it scales and to prevent styling fragmentation.
 
-> Copied from Taico (`ai-monorepo/docs/ui/guidelines.md`) and adapted for Money. Feature and navigation examples use Money's domains, §6.1 defers to the Money UI authentication task, §6.2 names the generated client, and §6.5 adds rules for financial data. Money has no UI yet; these rules apply from the first UI PR.
+> Copied from Taico (`ai-monorepo/docs/ui/guidelines.md`) and adapted for Money. Feature and navigation examples use Money's domains, §6.1 points to the backend cookie session contract, §6.2 names the generated client, and §6.5 adds rules for financial data. Money has no UI yet; these rules apply from the first UI PR.
 
 ---
 
@@ -200,7 +200,7 @@ This document defines **principles** and **architectural decisions** for Money's
 
 ### 6.1 Authentication
 - Sign-in is federated to Taico. The UI never implements its own login, passwords or sign-up.
-- The Money UI authentication task (33ffbd01) decides the browser session mechanism. A backend-set **HttpOnly cookie** (BFF session) is the preferred option but isn't mandated yet.
+- The browser session is a backend-set **HttpOnly cookie** (BFF session, task 33ffbd01). The contract is in [apps/backend/docs/web-auth.md](../../apps/backend/docs/web-auth.md#contract-for-the-web-app): bootstrap with `GET /auth/session`, sign in by navigating to `/auth/login?returnTo=…`, send `X-CSRF-Token` on unsafe requests, and handle `401 session_expired` by signing in again.
 - Feature code never reads, stores or attaches tokens. Session handling lives in one app-level module, which configures the generated client (a cookie, or `getAccessToken`).
 - Tokens are never written to `localStorage`, `sessionStorage` or URLs.
 
@@ -284,7 +284,7 @@ Before merging UI work:
 - **CSS variables** as design tokens and the source of truth for themes.
 - **Multiple themes** supported via `[data-theme="..."]` token overrides.
 - **No fetch / no manual API calls**; use shared generated clients only.
-- **Auth federated to Taico**, with the session mechanism set by the UI authentication task. Feature code never touches tokens.
+- **Auth federated to Taico** through the backend's cookie session (`apps/backend/docs/web-auth.md`). Feature code never touches tokens.
 - **Decimal strings end to end**: the backend owns all accounting maths.
 - **Feature-based structure** with strict UI primitives foundation.
 - **CSS-first responsiveness**; JS media queries only for behavioral differences.

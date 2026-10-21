@@ -1,4 +1,4 @@
-import { DynamicModule, Global, Module } from '@nestjs/common';
+import { DynamicModule, Global, Module, RequestMethod, type MiddlewareConsumer, type NestModule } from '@nestjs/common';
 import { APP_FILTER } from '@nestjs/core';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { remoteJwks, type JwksSource } from '@taico/auth';
@@ -42,6 +42,11 @@ import { ValuationsController } from './valuations/valuations.controller';
 import { ValuationsRepository } from './valuations/valuations.repository';
 import { ValuationsService } from './valuations/valuations.service';
 import { UsersService } from './users/users.service';
+import { SessionAuthMiddleware } from './web-auth/session-auth.middleware';
+import { TaicoWebClient } from './web-auth/taico-web-client';
+import { WebAuthController } from './web-auth/web-auth.controller';
+import { MONEY_RESOURCE_SERVER, WebAuthService } from './web-auth/web-auth.service';
+import { WebSessionsRepository } from './web-auth/web-sessions.repository';
 
 export type AppModuleOptions = {
   config: AppConfig;
@@ -49,6 +54,8 @@ export type AppModuleOptions = {
   jwks?: JwksSource;
   /** Overrides the provider chosen by MARKET_PRICE_PROVIDER */
   priceProvider?: MarketPriceProvider;
+  /** Overrides how browser sign-in talks to Taico (tests stand in a fake authorization server) */
+  webAuthFetch?: typeof fetch;
 };
 
 export function priceProviderFor(config: AppConfig): MarketPriceProvider {
@@ -57,19 +64,20 @@ export function priceProviderFor(config: AppConfig): MarketPriceProvider {
 
 @Global()
 @Module({})
-export class AppModule {
+export class AppModule implements NestModule {
   static forRoot(options: AppModuleOptions): DynamicModule {
     const { config } = options;
+    const resourceServer = createMoneyResourceServer(config, options.jwks ?? remoteJwks(config.auth.jwksUrl));
     return {
       module: AppModule,
       imports: [
         TypeOrmModule.forRoot({ ...dataSourceOptions(config.database), retryAttempts: config.nodeEnv === 'test' ? 0 : 5 }),
         AuthModule.forRoot({
-          resourceServer: createMoneyResourceServer(config, options.jwks ?? remoteJwks(config.auth.jwksUrl)),
+          resourceServer,
           metadata: { resources: protectedResources(config), authorizationServers: config.auth.authorizationServers },
         }),
       ],
-      controllers: [HealthController, AccountsController, TransactionsController, LotsController, PortfolioController, CategoriesController, ReportsController, TransfersController, ValuationsController, McpController],
+      controllers: [HealthController, AccountsController, TransactionsController, LotsController, PortfolioController, CategoriesController, ReportsController, TransfersController, ValuationsController, McpController, WebAuthController],
       providers: [
         { provide: APP_CONFIG, useValue: config },
         { provide: MARKET_PRICE_PROVIDER, useValue: options.priceProvider ?? priceProviderFor(config) },
@@ -97,8 +105,18 @@ export class AppModule {
         ValuationsService,
         ValuationScheduler,
         MoneyMcpServerFactory,
+        { provide: MONEY_RESOURCE_SERVER, useValue: resourceServer },
+        { provide: TaicoWebClient, useValue: new TaicoWebClient(config, options.webAuthFetch) },
+        WebSessionsRepository,
+        WebAuthService,
+        SessionAuthMiddleware,
       ],
       exports: [MARKET_PRICE_PROVIDER, MarketPricesService, ValuationJobService],
     };
+  }
+
+  /** The web app's session cookie is accepted on the REST API only, never on /mcp (docs/web-auth.md) */
+  configure(consumer: MiddlewareConsumer): void {
+    consumer.apply(SessionAuthMiddleware).forRoutes({ path: 'api', method: RequestMethod.ALL }, { path: 'api/{*path}', method: RequestMethod.ALL });
   }
 }

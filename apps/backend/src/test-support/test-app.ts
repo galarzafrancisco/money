@@ -82,8 +82,15 @@ async function startPostgresDatabase(adminUrl: string): Promise<{ url: string; s
 /** True when tests run against a real Postgres server with a connection pool */
 export const usingRealPostgres = Boolean(process.env.TEST_POSTGRES_URL);
 
+export type TestAppOptions = {
+  /** Extra environment variables */
+  env?: Record<string, string>;
+  /** Stands in for Taico's authorization server in browser sign-in tests */
+  webAuthFetch?: typeof fetch;
+};
+
 /** Boots the real app on its own database, trusting a key pair generated for the test */
-export async function createTestApp(): Promise<TestApp> {
+export async function createTestApp(options: TestAppOptions = {}): Promise<TestApp> {
   const database = process.env.TEST_POSTGRES_URL
     ? await startPostgresDatabase(process.env.TEST_POSTGRES_URL)
     : { ...(await startDatabase()), poolMax: 1 };
@@ -100,11 +107,13 @@ export async function createTestApp(): Promise<TestApp> {
     DATABASE_POOL_MAX: String(database.poolMax),
     TAICO_ISSUER: ISSUER,
     MARKET_PRICE_CACHE_SECONDS: '0',
+    TAICO_WEB_CLIENT_ID: 'money-web-test',
+    ...options.env,
   } as NodeJS.ProcessEnv);
   const prices = new MockPriceProvider();
 
   const moduleRef = await Test.createTestingModule({
-    imports: [AppModule.forRoot({ config, jwks: staticJwks([jwk]), priceProvider: prices })],
+    imports: [AppModule.forRoot({ config, jwks: staticJwks([jwk]), priceProvider: prices, webAuthFetch: options.webAuthFetch })],
   }).compile();
   const app = moduleRef.createNestApplication({ logger: false });
   await app.init();
