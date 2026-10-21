@@ -22,6 +22,8 @@ import {
   withdrawalShape,
 } from '../transactions/transactions.schemas';
 import { TransactionsService } from '../transactions/transactions.service';
+import { createTransferShape, listTransfersShape, updateTransferShape } from '../transfers/transfers.schemas';
+import { TransfersService } from '../transfers/transfers.service';
 import type { CurrentUser } from '../users/users.service';
 
 const PERSONAL_TRACKING =
@@ -30,6 +32,7 @@ const PERSONAL_TRACKING =
 const accountId = z.string().describe('Account ID (from list_accounts)');
 const categoryId = z.string().describe('Category ID (from list_categories)');
 const transactionId = z.string().describe('Transaction ID (from list_transactions)');
+const transferId = z.string().describe('Transfer ID (from list_transfers)');
 
 /**
  * The MCP adapter. Each tool parses nothing itself and holds no business
@@ -46,6 +49,7 @@ export class MoneyMcpServerFactory {
     private readonly prices: MarketPricesService,
     private readonly categories: CategoriesService,
     private readonly reports: ReportsService,
+    private readonly transfers: TransfersService,
   ) {}
 
   build(user: CurrentUser): McpServer {
@@ -53,7 +57,7 @@ export class MoneyMcpServerFactory {
       { name: 'money', version: '0.0.1' },
       {
         instructions:
-          `Personal investment tracking for the signed-in user: named accounts, multi-currency cash, FX conversions, share buys and sells, dividends with withholding tax, cost bases per parcel, and gains. ${PERSONAL_TRACKING} ` +
+          `Personal investment tracking for the signed-in user: named accounts, multi-currency cash, FX conversions, transfers between accounts, share buys and sells, dividends with withholding tax, cost bases per parcel, and gains. ${PERSONAL_TRACKING} ` +
           'Amounts are decimal strings. Figures are not tax advice; see the notes returned by get_portfolio.',
       },
     );
@@ -88,7 +92,7 @@ export class MoneyMcpServerFactory {
     );
     tool(
       'delete_account',
-      'Delete an account. An account with subaccounts is refused; move or delete them first. An account with transactions needs deleteTransactions: true, which deletes them too.',
+      'Delete an account. An account with subaccounts is refused; move or delete them first. So is one that takes part in transfers; delete those first. An account with transactions needs deleteTransactions: true, which deletes them too.',
       destructive,
       { accountId, deleteTransactions: z.boolean().optional().describe('Also delete the account\'s transactions') },
       ({ accountId, deleteTransactions }) => this.accounts.delete(user, accountId, { deleteTransactions }),
@@ -204,17 +208,49 @@ export class MoneyMcpServerFactory {
     );
     tool(
       'update_transaction',
-      'Edit a transaction. Only fields valid for its type are accepted. Fields left out keep their values; set a calculable field to null to have it recalculated. The edit is rejected if the account\'s ledger would become inconsistent.',
+      'Edit a transaction. Transfer legs (TRANSFER_OUT/TRANSFER_IN) are refused; use update_transfer. Only fields valid for its type are accepted. Fields left out keep their values; set a calculable field to null to have it recalculated. The edit is rejected if the account\'s ledger would become inconsistent.',
       write,
       { transactionId, ...updateTransactionSchema.shape },
       ({ transactionId, ...changes }) => this.transactions.update(user, transactionId, changes),
     );
     tool(
       'delete_transaction',
-      'Delete a transaction. Rejected if later transactions depend on it (e.g. a deposit that funded a buy).',
+      'Delete a transaction. Transfer legs are refused; use delete_transfer. Rejected if later transactions depend on it (e.g. a deposit that funded a buy).',
       destructive,
       { transactionId },
       ({ transactionId }) => this.transactions.delete(user, transactionId),
+    );
+
+    tool(
+      'record_transfer',
+      `Record money moved between two of your accounts or subaccounts, e.g. from your bank account to a "Term Deposit 1" bucket. Both sides are recorded together: a TRANSFER_OUT on fromAccountId (amount plus any fees) and a TRANSFER_IN on toAccountId. In one currency give fromAmount. Between currencies give toCurrency and any two of fromAmount, toAmount and rate (toCurrency per fromCurrency). Fails if the source did not hold enough fromCurrency on that date. ${PERSONAL_TRACKING}`,
+      write,
+      createTransferShape,
+      (args) => this.transfers.record(user, args),
+    );
+    tool(
+      'list_transfers',
+      'List transfers between your accounts, by date. Give accountId for the ones into or out of one account.',
+      read,
+      listTransfersShape,
+      (args) => this.transfers.list(user, args),
+    );
+    tool('get_transfer', 'Get one transfer, including its FX details and the IDs of its two transactions', read, { transferId }, ({ transferId }) =>
+      this.transfers.get(user, transferId),
+    );
+    tool(
+      'update_transfer',
+      'Edit a transfer; both sides change together. Accounts cannot be changed (delete and record again). Fields left out keep their values; set fromAmount, toAmount or rate to null to recalculate it. Rejected if either account\'s ledger would become inconsistent.',
+      write,
+      { transferId, ...updateTransferShape },
+      ({ transferId, ...changes }) => this.transfers.update(user, transferId, changes),
+    );
+    tool(
+      'delete_transfer',
+      'Delete a transfer recorded by mistake, with both its transactions. Rejected if either account depends on it (e.g. the destination already spent the money). If money really came back, record a transfer in the opposite direction instead.',
+      destructive,
+      { transferId },
+      ({ transferId }) => this.transfers.delete(user, transferId),
     );
 
     tool(

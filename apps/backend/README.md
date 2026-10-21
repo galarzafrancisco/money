@@ -4,8 +4,8 @@ Money's backend: personal investment tracking exposed as a **REST API** (`/api`)
 and an **MCP server** (`/mcp`, Streamable HTTP). Both call the same services, so
 the business rules live in one place.
 
-Money **only records and tracks**. Deposits, withdrawals, FX conversions, buys,
-sells and dividends are records of things that happened elsewhere. They are
+Money **only records and tracks**. Deposits, withdrawals, FX conversions,
+transfers between accounts, buys, sells and dividends are records of things that happened elsewhere. They are
 entered by hand or sent by external automation. Nothing here contacts a bank or
 broker, moves money or places trades. Market-price lookups are the only outbound
 calls.
@@ -15,6 +15,7 @@ calls.
 | [docs/data-model.md](docs/data-model.md) | Architecture, tables, how derived state is computed, edit and delete semantics |
 | [docs/api.md](docs/api.md) | REST endpoints, MCP tools, errors |
 | [docs/categories.md](docs/categories.md) | Subaccounts (buckets), user-defined categories, roll-up and category reports, FX policy |
+| [docs/transfers.md](docs/transfers.md) | Transfers between accounts: linked legs, FX, atomicity, edits, deletion and reversal |
 | [docs/accounting-assumptions.md](docs/accounting-assumptions.md) | Australian cost base, lots, FX and dividend assumptions, plus open questions |
 
 ## Architecture
@@ -116,12 +117,14 @@ traded in; otherwise `priceError` says why.
 npm -w @money/backend test
 ```
 
-- Unit tests: three-of-four trade math, two-of-three dividends and FX, ledger
+- Unit tests: three-of-four trade math, two-of-three dividends and FX, transfer
+  amounts, ledger
   replay (cash and FX flows, FIFO lots, cost bases, dividends, violations, the
   12-month test), Yahoo adapter, user identity mapping.
 - End-to-end tests over HTTP on both interfaces: token validation (missing,
   foreign key, wrong issuer, expired, wrong audience, cross-resource), the full
-  investment flow, edit and delete semantics, a concurrency test, and
+  investment flow, edit and delete semantics, transfers (atomicity, FX, edits,
+  isolation), concurrency tests, and
   **cross-user isolation on every REST route and MCP tool**.
 
 Each e2e test file starts its own in-memory PGlite in a child process, reached

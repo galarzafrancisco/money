@@ -41,9 +41,11 @@ the Emergency Fund twice. Dashboards should add `own` figures, add top-level
 
 ### Moving money between buckets
 
-A bucket is just an account. To record moving money into or out of one, record
-a `WITHDRAWAL` on one account and a `DEPOSIT` on the other. Linked atomic
-transfers are task 159468e5. They will work between buckets without extra work.
+A bucket is just an account. Record moving money into or out of one as a
+**transfer** (`POST /api/transfers`, MCP `record_transfer`): both sides are
+written atomically and linked. See [transfers.md](transfers.md). A transfer
+between a parent and its bucket leaves the parent's `rolledUp` total unchanged,
+apart from any fees.
 
 ## Categories
 

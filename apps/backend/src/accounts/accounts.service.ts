@@ -7,6 +7,7 @@ import { ConflictError, NotFoundError } from '../common/errors';
 import { isUuid, parseInput } from '../common/validation';
 import { UnitOfWork } from '../database/unit-of-work';
 import { TransactionsRepository } from '../transactions/transactions.repository';
+import { TransfersRepository } from '../transfers/transfers.repository';
 import type { CurrentUser } from '../users/users.service';
 import { AccountEntity } from './account.entity';
 import { AccountsRepository } from './accounts.repository';
@@ -41,6 +42,7 @@ export class AccountsService {
     private readonly accounts: AccountsRepository,
     private readonly transactions: TransactionsRepository,
     private readonly categories: CategoriesRepository,
+    private readonly transfers: TransfersRepository,
     private readonly uow: UnitOfWork,
   ) {}
 
@@ -121,7 +123,8 @@ export class AccountsService {
   /**
    * Deletes an account. An account with transactions is only deleted when
    * the caller says so explicitly; its transactions go with it. An account
-   * with subaccounts is never deleted: move or delete them first.
+   * with subaccounts is never deleted: move or delete them first. Nor is an
+   * account that takes part in transfers: delete the transfers first.
    */
   async delete(user: CurrentUser, accountId: string, input: { deleteTransactions?: boolean } = {}): Promise<{ deleted: true; transactionsDeleted: number }> {
     const { deleteTransactions } = parseInput(deleteAccountSchema, input);
@@ -134,6 +137,14 @@ export class AccountsService {
         throw new ConflictError(
           `Account "${account.name}" has ${children} subaccount(s). Move or delete them first.`,
           { subaccountCount: children },
+        );
+      }
+      // Deleting one side of a transfer would leave the other account's ledger with half a transfer
+      const transferCount = await this.transfers.countForAccount(user.id, account.id, manager);
+      if (transferCount > 0) {
+        throw new ConflictError(
+          `Account "${account.name}" takes part in ${transferCount} transfer(s) with other accounts. Delete those transfers first.`,
+          { transferCount },
         );
       }
       const count = await this.transactions.count(user.id, account.id, manager);

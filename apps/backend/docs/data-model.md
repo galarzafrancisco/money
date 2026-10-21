@@ -40,6 +40,16 @@ symbol)`, so there is at most one category per holding. `user_id` and the
 composite FKs to `accounts` and `categories` keep both on the same user. The
 row is deleted with the account or the category.
 
+### `transfers`
+
+A transfer between two of the user's accounts: `from_account_id`,
+`to_account_id` (composite FKs to `accounts(id, user_id)`, NO ACTION, so an
+account in a transfer can't be deleted on its own), `date`, `description`,
+`from_currency`, `from_amount`, `to_currency`, `to_amount`, `fx_rate` (to per
+from), `fees` (in from currency) and `calculated_field`. CHECKs: the two
+accounts differ, amounts and rate are positive, and within one currency
+`to_amount = from_amount` and `fx_rate = 1`. See [transfers.md](transfers.md).
+
 ### `transactions`
 
 One row per recorded activity. `user_id` repeats the account owner so every query
@@ -54,6 +64,14 @@ can filter on the user directly. `sequence` is the per-account insertion order
 | `BUY` | `symbol`, `currency`, `quantity`, `unit_price`, `fees`, `total` (= q × p + fees) | `−total` |
 | `SELL` | same as `BUY`, but `total` = q × p − fees | `+total` |
 | `DIVIDEND` | `symbol`, `currency`, `gross_amount`, `withholding_tax`, `net_amount`, `franking_credits` | `+net_amount` |
+| `TRANSFER_OUT` | `currency`, `amount`, `fees`, `transfer_id`, `counterparty_account_id` | `−(amount + fees)` |
+| `TRANSFER_IN` | `currency`, `amount`, `transfer_id`, `counterparty_account_id` | `+amount` |
+
+Transfer legs exist only as a pair owned by a `transfers` row. A CHECK requires
+`transfer_id` and `counterparty_account_id` on legs and forbids them on every
+other type. `UQ_transactions_transfer_leg` allows one leg of each kind per
+transfer. Composite FKs keep the transfer and the counterparty with the same
+user. Deleting the transfer cascades to its legs.
 
 `external_*` on deposits and withdrawals describe the other side outside the
 account, for example "1000 AUD left the bank and arrived as 650 USD". They are
@@ -114,7 +132,12 @@ So:
   five parallel withdrawals against Postgres to check this.
 
 Moving a transaction to another account isn't supported: delete it and record
-it again. Transfers between accounts are a separate task (159468e5).
+it again.
+
+- **Transfers** lock both accounts in id order and replay both ledgers before
+  writing the transfer and its two legs. A leg can't be edited or deleted on
+  its own, and an account that takes part in transfers can't be deleted. See
+  [transfers.md](transfers.md).
 
 - **Hierarchy changes** (creating, moving or deleting an account) lock the
   user's row before the account row. Concurrent moves are serialized, so
@@ -128,13 +151,15 @@ Every writer takes locks in this order, and skips the ones it doesn't need:
 2. a category row: `FOR SHARE` to assign it to an account or holding,
    `FOR UPDATE` to delete it;
 3. account rows (`FOR UPDATE`): one account for a transaction write or an
-   account update/delete; when a category is deleted, every account it
-   affects (directly, or through a holding), in id order.
+   account update/delete; **both accounts of a transfer, in id order**; when a
+   category is deleted, every account it affects (directly, or through a
+   holding), in id order.
 
 Postgres takes the ON DELETE SET NULL / CASCADE actions of a category delete
 on the account rows. Without step 3 up front, a delete holding the category
 would wait for an account that an assignment holds while that assignment waits
 for the category: a deadlock. `src/category-locking.e2e.spec.ts` forces that
-interleaving against real Postgres. New writers, transfers (159468e5)
-included, must keep this order. A transfer that locks two accounts must lock
-them in id order.
+interleaving against real Postgres. New writers must keep this order.
+Transfers do: they lock only their two accounts, in id order, and
+`src/transfers.e2e.spec.ts` runs opposite-direction transfers concurrently
+against Postgres to check they don't deadlock.

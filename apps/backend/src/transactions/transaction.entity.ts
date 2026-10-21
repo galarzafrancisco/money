@@ -43,11 +43,11 @@ export class TransactionEntity {
   @Column({ type: 'text', nullable: true })
   description: string | null;
 
-  /** Cash currency affected (deposit, withdrawal, trade, dividend) */
+  /** Cash currency affected (deposit, withdrawal, trade, dividend, transfer leg) */
   @Column({ type: 'varchar', length: 3, nullable: true })
   currency: string | null;
 
-  /** Deposit or withdrawal amount in `currency` */
+  /** Deposit, withdrawal or transfer-leg amount in `currency` */
   @Column(decimalColumn('amount'))
   amount: string | null;
 
@@ -67,7 +67,7 @@ export class TransactionEntity {
   @Column(decimalColumn('unit_price'))
   unitPrice: string | null;
 
-  /** Brokerage on trades; conversion fee (in from_currency) on FX */
+  /** Brokerage on trades; conversion fee (in from_currency) on FX; transfer fee on TRANSFER_OUT */
   @Column(decimalColumn('fees'))
   fees: string | null;
 
@@ -103,6 +103,14 @@ export class TransactionEntity {
   /** Australian franking credits attached to a dividend. Not cash; recorded for tax reporting. */
   @Column(decimalColumn('franking_credits'))
   frankingCredits: string | null;
+
+  /** The transfer this leg belongs to (TRANSFER_OUT / TRANSFER_IN only) */
+  @Column({ name: 'transfer_id', type: 'uuid', nullable: true })
+  transferId: string | null;
+
+  /** The account on the other side of the transfer (TRANSFER_OUT / TRANSFER_IN only) */
+  @Column({ name: 'counterparty_account_id', type: 'uuid', nullable: true })
+  counterpartyAccountId: string | null;
 
   /** Which field Money calculated from the others (e.g. 'fees' for a three-of-four trade), if any */
   @Column({ name: 'calculated_field', type: 'varchar', length: 20, nullable: true })
