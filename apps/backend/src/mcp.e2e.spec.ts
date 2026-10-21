@@ -53,6 +53,8 @@ describe('MCP interface', () => {
         'list_transactions', 'get_transaction', 'record_deposit', 'record_withdrawal', 'record_fx_conversion',
         'record_buy', 'record_sell', 'record_dividend', 'update_transaction', 'delete_transaction',
         'get_portfolio', 'get_market_price',
+        'list_categories', 'get_category', 'create_category', 'update_category', 'delete_category',
+        'set_holding_category', 'list_holding_categories', 'get_accounts_report', 'get_categories_report',
       ]),
     );
   });

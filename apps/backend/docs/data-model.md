@@ -20,10 +20,25 @@ for money.
 | Column | Notes |
 |---|---|
 | `user_id` | Owner (FK, cascade) |
-| `name` | Unique per user, case-insensitive (`UQ_accounts_user_name` on `(user_id, lower(name))`) |
+| `name` | Unique among siblings, case-insensitive (`UQ_accounts_user_parent_name` on `(user_id, coalesce(parent_account_id, nil-uuid), lower(name))`) |
+| `parent_account_id` | The account this is a subaccount (bucket) of, or null. Composite FK `(parent_account_id, user_id) → accounts(id, user_id)`, so it is always the same user's account. At most 5 levels; no cycles (see [categories.md](categories.md)). |
+| `category_id` | The account's own category, or null (inherits its parent's). Composite FK to `categories(id, user_id)`, `ON DELETE SET NULL (category_id)` (needs Postgres 15+). |
 | `type` | `INVESTMENT` (the main case), `CASH` or `OTHER` |
 | `reporting_currency` | The currency the account is usually reported in. Cash can be held in any currency. |
 | `description` | Free text |
+
+### `categories`
+
+User-defined labels (`name` unique per user, case-insensitive; optional
+`description` and `#rrggbb` `color`). `(id, user_id)` is unique so other tables
+can reference it with a composite FK.
+
+### `holding_categories`
+
+One row per holding that has its own category. The key is `(account_id,
+symbol)`, so there is at most one category per holding. `user_id` and the
+composite FKs to `accounts` and `categories` keep both on the same user. The
+row is deleted with the account or the category.
 
 ### `transactions`
 
@@ -100,3 +115,8 @@ So:
 
 Moving a transaction to another account isn't supported: delete it and record
 it again. Transfers between accounts are a separate task (159468e5).
+
+- **Hierarchy changes** (creating, moving or deleting an account) lock the
+  user's row before the account row. Concurrent moves are serialized, so
+  they can't create a cycle together. Transaction writes lock only the
+  account row, so the lock order (user, then account) can't deadlock.
