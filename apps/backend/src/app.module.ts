@@ -29,6 +29,9 @@ import { ReportsService } from './reports/reports.service';
 import { TransactionsController } from './transactions/transactions.controller';
 import { TransactionsRepository } from './transactions/transactions.repository';
 import { TransactionsService } from './transactions/transactions.service';
+import { TransfersController } from './transfers/transfers.controller';
+import { TransfersRepository } from './transfers/transfers.repository';
+import { TransfersService } from './transfers/transfers.service';
 import { UsersRepository } from './users/users.repository';
 import { UsersService } from './users/users.service';
 
@@ -58,7 +61,7 @@ export class AppModule {
           metadata: { resources: protectedResources(config), authorizationServers: config.auth.authorizationServers },
         }),
       ],
-      controllers: [HealthController, AccountsController, TransactionsController, PortfolioController, CategoriesController, ReportsController, McpController],
+      controllers: [HealthController, AccountsController, TransactionsController, PortfolioController, CategoriesController, ReportsController, TransfersController, McpController],
       providers: [
         { provide: APP_CONFIG, useValue: config },
         { provide: MARKET_PRICE_PROVIDER, useValue: options.priceProvider ?? priceProviderFor(config) },
@@ -75,6 +78,8 @@ export class AppModule {
         ReportsService,
         TransactionsRepository,
         TransactionsService,
+        TransfersRepository,
+        TransfersService,
         PortfolioService,
         MarketPricesService,
         MoneyMcpServerFactory,

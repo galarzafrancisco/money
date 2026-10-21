@@ -60,6 +60,12 @@ export function replayLedger(entries: readonly LedgerEntry[]): LedgerState {
       case 'WITHDRAWAL':
         debit(entry, entry.currency, entry.amount);
         break;
+      case 'TRANSFER_OUT':
+        debit(entry, entry.currency, entry.amount.plus(entry.fees));
+        break;
+      case 'TRANSFER_IN':
+        credit(entry.currency, entry.amount);
+        break;
       case 'FX_CONVERSION':
         debit(entry, entry.fromCurrency, entry.fromAmount.plus(entry.fees));
         credit(entry.toCurrency, entry.toAmount);
@@ -201,6 +207,10 @@ function describe(entry: LedgerEntry): string {
       return `buy of ${fmt(entry.quantity)} ${entry.symbol}`;
     case 'FX_CONVERSION':
       return `conversion from ${entry.fromCurrency} to ${entry.toCurrency}`;
+    case 'TRANSFER_OUT':
+      return 'transfer out';
+    case 'TRANSFER_IN':
+      return 'transfer in';
     default:
       return entry.type.toLowerCase().replace('_', ' ');
   }

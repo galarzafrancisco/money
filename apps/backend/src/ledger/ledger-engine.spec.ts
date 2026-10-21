@@ -154,3 +154,34 @@ describe('heldOverTwelveMonths', () => {
     expect(heldOverTwelveMonths('2024-02-29', '2025-03-01')).toBe(true);
   });
 });
+
+describe('replayLedger: transfer legs', () => {
+  const leg = (type: 'TRANSFER_OUT' | 'TRANSFER_IN', date: string, currency: string, amount: string, fees = '0'): LedgerEntry => ({
+    ...at(date), type, currency, amount: dec(amount), fees: dec(fees),
+  });
+
+  it('debits amount plus fees on the way out and credits the amount on the way in, per currency', () => {
+    const state = replayLedger([
+      deposit('2025-01-01', 'AUD', '1000'),
+      leg('TRANSFER_OUT', '2025-01-02', 'AUD', '600', '2.5'),
+      leg('TRANSFER_IN', '2025-01-03', 'USD', '390'),
+    ]);
+    expect(cash(state, 'AUD')).toBe('397.5');
+    expect(cash(state, 'USD')).toBe('390');
+  });
+
+  it('rejects a transfer out that the balance on that date cannot cover, including fees', () => {
+    const out = leg('TRANSFER_OUT', '2025-01-02', 'AUD', '1000', '0.01');
+    expect(() => replayLedger([deposit('2025-01-01', 'AUD', '1000'), out])).toThrow(LedgerViolationError);
+    try {
+      replayLedger([deposit('2025-01-01', 'AUD', '1000'), out]);
+    } catch (error) {
+      expect((error as LedgerViolationError).details).toMatchObject({ transactionId: out.id, currency: 'AUD', required: '1000.01', available: '1000' });
+    }
+  });
+
+  it('lets money that arrived by transfer fund later activity, but not earlier activity', () => {
+    expect(() => replayLedger([leg('TRANSFER_IN', '2025-01-05', 'USD', '100'), withdraw('2025-01-06', 'USD', '100')])).not.toThrow();
+    expect(() => replayLedger([leg('TRANSFER_IN', '2025-01-05', 'USD', '100'), withdraw('2025-01-04', 'USD', '100')])).toThrow(LedgerViolationError);
+  });
+});

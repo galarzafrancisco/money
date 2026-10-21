@@ -1,12 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { EntityManager } from 'typeorm';
-import { NotFoundError, ValidationError } from '../common/errors';
+import { ConflictError, NotFoundError, ValidationError } from '../common/errors';
 import { isUuid, parseInput } from '../common/validation';
 import { AccountsRepository } from '../accounts/accounts.repository';
 import { UnitOfWork } from '../database/unit-of-work';
 import { replayLedger } from '../ledger/ledger-engine';
-import type { TransactionType } from '../ledger/ledger.types';
+import { isTransferLeg, type RecordableTransactionType } from '../ledger/ledger.types';
 import type { CurrentUser } from '../users/users.service';
 import { TransactionEntity } from './transaction.entity';
 import { TransactionsRepository } from './transactions.repository';
@@ -32,7 +32,7 @@ const SCHEMA_BY_TYPE = {
   BUY: tradeSchema,
   SELL: tradeSchema,
   DIVIDEND: dividendSchema,
-} as const;
+} as const satisfies Record<RecordableTransactionType, unknown>;
 
 /**
  * Records, edits and deletes account activity. These are records of what
@@ -59,7 +59,7 @@ export class TransactionsService {
   }
 
   /** MCP entry point: the tool names the type */
-  recordOfType(user: CurrentUser, accountId: string, type: TransactionType, input: unknown): Promise<TransactionView> {
+  recordOfType(user: CurrentUser, accountId: string, type: RecordableTransactionType, input: unknown): Promise<TransactionView> {
     const fields = parseInput(SCHEMA_BY_TYPE[type], input) as TransactionFields;
     return this.create(user, accountId, type, fields);
   }
@@ -87,6 +87,7 @@ export class TransactionsService {
     const patch = parseInput(updateTransactionSchema, input) as TransactionFields;
     return this.uow.run(async (manager) => {
       const existing = await this.lockTransactionAccount(user, transactionId, manager);
+      assertNotTransferLeg(existing, 'edit');
       const allowed = UPDATABLE_FIELDS[existing.type];
       const notAllowed = Object.keys(patch).filter((key) => patch[key as keyof TransactionFields] !== undefined && !allowed.includes(key));
       if (notAllowed.length > 0) {
@@ -108,13 +109,14 @@ export class TransactionsService {
   async delete(user: CurrentUser, transactionId: string): Promise<{ deleted: true }> {
     return this.uow.run(async (manager) => {
       const existing = await this.lockTransactionAccount(user, transactionId, manager);
+      assertNotTransferLeg(existing, 'delete');
       await this.validateLedger(user, existing.accountId, manager, (rows) => rows.filter((row) => row.id !== existing.id));
       await this.transactions.delete(user.id, existing.id, manager);
       return { deleted: true as const };
     });
   }
 
-  private async create(user: CurrentUser, accountId: string, type: TransactionType, fields: TransactionFields): Promise<TransactionView> {
+  private async create(user: CurrentUser, accountId: string, type: RecordableTransactionType, fields: TransactionFields): Promise<TransactionView> {
     const columns = materialize(type, fields);
     return this.uow.run(async (manager) => {
       const account = isUuid(accountId) ? await this.accounts.findForUpdate(user.id, accountId, manager) : null;
@@ -157,4 +159,13 @@ export class TransactionsService {
     const rows = await this.transactions.listForAccount(user.id, accountId, manager);
     replayLedger(change(rows).map(toLedgerEntry));
   }
+}
+
+/** A transfer's legs only change together, through the transfer */
+function assertNotTransferLeg(transaction: TransactionEntity, action: 'edit' | 'delete'): void {
+  if (!isTransferLeg(transaction.type)) return;
+  throw new ConflictError(
+    `This ${transaction.type} transaction is one side of transfer ${transaction.transferId}. ${action === 'edit' ? 'Edit' : 'Delete'} the transfer instead, so both accounts stay consistent.`,
+    { transferId: transaction.transferId },
+  );
 }

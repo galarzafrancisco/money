@@ -1,6 +1,6 @@
 import { MoneyDecimal, ZERO, dec, fmt, fmtOrNull, parseDecimalOrNull } from '../common/decimal';
 import { ValidationError } from '../common/errors';
-import type { LedgerEntry, TransactionType } from '../ledger/ledger.types';
+import { isTransferLeg, type LedgerEntry, type TransactionType } from '../ledger/ledger.types';
 import { resolveDividend, resolveFx, resolveTrade } from '../ledger/trade-math';
 import type { TransactionEntity } from './transaction.entity';
 
@@ -37,6 +37,7 @@ const d = (value: string | null | undefined): MoneyDecimal | null => parseDecima
  * the calculated field (three-of-four trades, two-of-three dividends and FX).
  */
 export function materialize(type: TransactionType, fields: TransactionFields): MaterializedColumns {
+  if (isTransferLeg(type)) throw new ValidationError(`${type} transactions are recorded through a transfer, not on their own`);
   if (!fields.date) throw new ValidationError('date is required');
   const base = { ...blank, date: fields.date, description: fields.description ?? null };
   switch (type) {
@@ -193,6 +194,9 @@ export function toLedgerEntry(t: TransactionEntity): LedgerEntry {
         netAmount: dec(t.netAmount!),
         frankingCredits: dec(t.frankingCredits ?? '0'),
       };
+    case 'TRANSFER_OUT':
+    case 'TRANSFER_IN':
+      return { ...base, type: t.type, currency: t.currency!, amount: dec(t.amount!), fees: dec(t.fees ?? '0') };
   }
 }
 
@@ -262,6 +266,16 @@ export function toTransactionView(t: TransactionEntity): TransactionView {
         withholdingTax: s(t.withholdingTax),
         netAmount: s(t.netAmount),
         frankingCredits: s(t.frankingCredits),
+      });
+      break;
+    case 'TRANSFER_OUT':
+    case 'TRANSFER_IN':
+      Object.assign(view, {
+        currency: t.currency,
+        amount: s(t.amount),
+        ...(t.type === 'TRANSFER_OUT' ? { fees: s(t.fees) } : {}),
+        transferId: t.transferId,
+        counterpartyAccountId: t.counterpartyAccountId,
       });
       break;
   }
