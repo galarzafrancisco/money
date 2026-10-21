@@ -4,6 +4,13 @@ Both interfaces need `Authorization: Bearer <Taico access token>` whose audience
 is the interface's URL (`$PUBLIC_BASE_URL/api` or `$PUBLIC_BASE_URL/mcp`). A 401
 or 403 carries `WWW-Authenticate: Bearer resource_metadata="…"`.
 
+The web app instead calls `/api` with its session cookie (and `X-CSRF-Token` on
+unsafe methods). The cookie is exchanged for the session's Taico token before the
+same checks run. A request with an `Authorization` header ignores the cookie.
+`/mcp` never accepts the cookie. Browser sign-in endpoints (`/auth/login`,
+`/auth/callback`, `/auth/session`, `/auth/logout`, `/auth/client-metadata.json`)
+are described in [web-auth.md](web-auth.md).
+
 Amounts are decimal strings. The MCP tools also accept JSON numbers and convert
 them, but strings are preferred.
 
@@ -103,6 +110,9 @@ the same `{ error: { code, message, details } }` body that REST returns.
 |---|---|---|
 | 400 | `validation_failed` | Bad input, e.g. fewer than three of the four trade fields, inconsistent totals, a field that doesn't apply to the type; a transfer to the same account, unequal same-currency amounts, or an attempt to change a transfer's accounts; a report with `baseCurrency` but a missing FX rate (`details.missingRates`) |
 | 401 / 403 | (Bearer challenge) | Missing, invalid, expired or wrong-audience token |
+| 401 | `session_expired` | Session cookie unknown, expired, signed out, or its refresh was refused (web app: sign in again) |
+| 403 | `csrf_failed` | Unsafe request with the session cookie but without the right `X-CSRF-Token` |
+| 503 | `auth_unavailable` | Taico unreachable while renewing a session's token; the session is kept |
 | 404 | `not_found` | Doesn't exist, **or belongs to another user** |
 | 409 | `conflict` | Duplicate account name among siblings or duplicate category name; deleting an account that has transactions, subaccounts or transfers; editing or deleting a transfer leg directly; a cycle or nesting deeper than 5 levels; deleting an assigned category without `unassign`; deleting a purchase that sales allocate shares from (`details.saleTransactionIds`) |
 | 422 | `ledger_violation` | The change would make cash negative, oversell, or mix currencies for a ticker, or a sale's lot allocations would not fit (unknown lot, other ticker, bought after the sale, not enough left). For transfers, `details.side` says which account (`source`/`destination`). |

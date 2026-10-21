@@ -14,7 +14,8 @@
     "test": "jest",
     "migration:run": "npm run build && typeorm migration:run -d dist/database/data-source.js",
     "migration:revert": "npm run build && typeorm migration:revert -d dist/database/data-source.js",
-    "valuations:run": "node dist/valuations/run-job.js"
+    "valuations:run": "node dist/valuations/run-job.js",
+    "auth:register-web-client": "npm run build && node dist/web-auth/register-web-client.js"
   },
   "devDependencies": {
     "@electric-sql/pglite-socket": "^0.2.13",

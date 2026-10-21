@@ -24,6 +24,9 @@ services sit behind a REST API (`/api`) and an MCP server (`/mcp`).
   backend makes.
 - Authentication is **federated to Taico**. Money has no local login, passwords
   or sign-up.
+- The web app signs in through the backend (`/auth/*`, a BFF with HttpOnly cookie
+  sessions). Browser code never holds Taico tokens. See
+  [apps/backend/docs/web-auth.md](apps/backend/docs/web-auth.md).
 - **Strict user isolation** on every transport. The user comes only from the
   validated token's `(iss, sub)`. Another user's resource answers `404`, never
   `403`.

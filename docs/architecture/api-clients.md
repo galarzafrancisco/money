@@ -46,7 +46,9 @@ import { ApiClient } from '@money/client';
 
 const money = new ApiClient({
   baseUrl: import.meta.env.VITE_MONEY_API_URL,
-  getAccessToken: () => session.getAccessToken(), // or omitted with a cookie/BFF session
+  // The web app uses the backend's cookie session (apps/backend/docs/web-auth.md):
+  // no getAccessToken; the app-level session module adds X-CSRF-Token on unsafe requests.
+  // Other TypeScript consumers pass getAccessToken: () => tokens.getAccessToken().
 });
 
 const accounts = await money.accounts.listAccounts();

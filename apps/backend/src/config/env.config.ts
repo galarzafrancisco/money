@@ -1,3 +1,5 @@
+import { randomBytes } from 'node:crypto';
+
 /**
  * All environment variables are read here, once, and validated. Nothing
  * else reads process.env.
@@ -22,6 +24,8 @@ export type AppConfig = {
     mcpResourceUrl: string;
     apiResourceUrl: string;
   };
+  /** Browser sign-in through Taico, with server-side sessions (see docs/web-auth.md) */
+  webAuth: WebAuthConfig;
   marketPrices: {
     provider: MarketPriceProviderName;
     cacheSeconds: number;
@@ -43,6 +47,39 @@ export type AppConfig = {
     /** Upper bound on dates computed per user per run; the rest wait for the next run */
     maxDaysPerRun: number;
   };
+};
+
+export type WebAuthConfig = {
+  /** Taico registry entry whose URL is Money's REST API; its tokens carry aud = apiResourceUrl */
+  serverId: string;
+  /** Issuer identifier of that entry's authorization server; metadata is read from its well-known URL */
+  authorizationServer: string;
+  /**
+   * Money's OAuth client_id at Taico: a dynamically registered ID, or the URL
+   * of the client ID metadata document Money serves. Null when neither applies
+   * (plain-http base URL and no TAICO_WEB_CLIENT_ID): sign-in is then unavailable.
+   */
+  clientId: string | null;
+  /** URL of the client ID metadata document Money serves */
+  clientMetadataUrl: string;
+  /** Where Taico sends the browser back to */
+  redirectUri: string;
+  /** Origin and base path of the web app; post-login redirects stay under it */
+  appUrl: string;
+  /** AES-256-GCM key for tokens at rest */
+  encryptionKey: Buffer;
+  /** True when the key was generated for this process (development only): sessions end on restart */
+  encryptionKeyEphemeral: boolean;
+  /** Secure + __Host- cookies; true when the public base URL is https */
+  secureCookies: boolean;
+  sessionCookieName: string;
+  loginCookieName: string;
+  /** A session ends after this long without a request */
+  idleTimeoutMinutes: number;
+  /** A session ends this long after sign-in, whatever its activity */
+  absoluteTimeoutHours: number;
+  /** How long a started sign-in may take before its callback is refused */
+  loginTimeoutSeconds: number;
 };
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
@@ -86,6 +123,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       mcpResourceUrl: `${publicBaseUrl}/mcp`,
       apiResourceUrl: `${publicBaseUrl}/api`,
     },
+    webAuth: loadWebAuthConfig(env, nodeEnv, issuer, publicBaseUrl),
     marketPrices: {
       provider,
       cacheSeconds: parseInt(env.MARKET_PRICE_CACHE_SECONDS ?? '300', 10),
@@ -99,6 +137,51 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       maxCarryDays: intEnv(env, 'VALUATION_MAX_CARRY_DAYS', 7, 1, 31),
       maxDaysPerRun: intEnv(env, 'VALUATION_MAX_DAYS_PER_RUN', 400, 1, 5000),
     },
+  };
+}
+
+/** Version segment of Taico's per-server authorization server URLs */
+const TAICO_AUTH_SERVER_VERSION = '0.0.0';
+
+function loadWebAuthConfig(env: NodeJS.ProcessEnv, nodeEnv: AppConfig['nodeEnv'], issuer: string, publicBaseUrl: string): WebAuthConfig {
+  const serverId = env.TAICO_WEB_SERVER_ID ?? 'money-api';
+  if (!/^[A-Za-z0-9._-]+$/.test(serverId)) throw new Error(`TAICO_WEB_SERVER_ID has unexpected characters: ${serverId}`);
+  const secureCookies = publicBaseUrl.startsWith('https://');
+  const clientMetadataUrl = `${publicBaseUrl}/auth/client-metadata.json`;
+  // Taico only fetches client ID metadata documents over https from a public address
+  const clientId = env.TAICO_WEB_CLIENT_ID?.trim() || (secureCookies ? clientMetadataUrl : null);
+
+  let encryptionKey: Buffer;
+  let encryptionKeyEphemeral = false;
+  if (env.SESSION_ENCRYPTION_KEY) {
+    encryptionKey = Buffer.from(env.SESSION_ENCRYPTION_KEY, 'base64');
+    if (encryptionKey.length !== 32) throw new Error('SESSION_ENCRYPTION_KEY must be 32 bytes, base64-encoded (openssl rand -base64 32)');
+  } else if (nodeEnv === 'production') {
+    throw new Error('SESSION_ENCRYPTION_KEY is required in production (openssl rand -base64 32)');
+  } else {
+    encryptionKey = randomBytes(32);
+    encryptionKeyEphemeral = true;
+  }
+
+  const appUrl = stripSlash(env.WEB_APP_URL ?? publicBaseUrl);
+  if (!/^https?:\/\//.test(appUrl)) throw new Error(`WEB_APP_URL must be an http(s) URL, got ${appUrl}`);
+
+  return {
+    serverId,
+    authorizationServer: stripSlash(env.TAICO_WEB_AUTHORIZATION_SERVER ?? `${issuer}/mcp/${serverId}/${TAICO_AUTH_SERVER_VERSION}`),
+    clientId,
+    clientMetadataUrl,
+    redirectUri: `${publicBaseUrl}/auth/callback`,
+    appUrl,
+    encryptionKey,
+    encryptionKeyEphemeral,
+    secureCookies,
+    // __Host- cookies must be Secure, host-only and Path=/; browsers drop them over plain http
+    sessionCookieName: secureCookies ? '__Host-money_session' : 'money_session',
+    loginCookieName: secureCookies ? '__Host-money_login' : 'money_login',
+    idleTimeoutMinutes: intEnv(env, 'WEB_SESSION_IDLE_MINUTES', 12 * 60, 5, 30 * 24 * 60),
+    absoluteTimeoutHours: intEnv(env, 'WEB_SESSION_MAX_HOURS', 7 * 24, 1, 90 * 24),
+    loginTimeoutSeconds: 600,
   };
 }
 

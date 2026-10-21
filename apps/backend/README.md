@@ -17,6 +17,7 @@ calls.
 | [docs/categories.md](docs/categories.md) | Subaccounts (buckets), user-defined categories, roll-up and category reports, FX policy |
 | [docs/transfers.md](docs/transfers.md) | Transfers between accounts: linked legs, FX, atomicity, edits, deletion and reversal |
 | [docs/lot-selection.md](docs/lot-selection.md) | Purchase lots, specific identification and FIFO for sales, split allocations, precision, edit rules, UI contract |
+| [docs/web-auth.md](docs/web-auth.md) | Browser sign-in through Taico: BFF sessions, cookies, CSRF, renewal, sign-out, web app contract, Taico setup |
 | [docs/accounting-assumptions.md](docs/accounting-assumptions.md) | Australian cost base, lots, FX and dividend assumptions, plus open questions |
 
 ## Architecture
@@ -55,6 +56,12 @@ created on first use. Nothing in a request body, query string or tool argument
 can choose the user. Another user's account or transaction answers **404**, not
 403, so its existence isn't revealed.
 
+The web app does not handle tokens. It signs in through `/auth/login` (Authorization Code +
+PKCE at Taico, run by this backend) and calls `/api` with an HttpOnly session cookie plus
+`X-CSRF-Token`. The backend turns the cookie into the session's access token, and the same JWT
+checks above then run. `/mcp` accepts bearer tokens only. Design, contract and Taico setup:
+[docs/web-auth.md](docs/web-auth.md).
+
 Protected-resource metadata (RFC 9728) is served at
 `/.well-known/oauth-protected-resource/mcp` and `/…/api`, and points clients at
 `TAICO_AUTHORIZATION_SERVERS`.
@@ -82,7 +89,7 @@ them by hand: `npm -w @money/backend run migration:run` (with `DATABASE_URL` set
 |---|---|---|
 | `PORT` | `4180` | HTTP port |
 | `PUBLIC_BASE_URL` | `http://localhost:$PORT` | Public URL. Token audiences are `$PUBLIC_BASE_URL/mcp` and `$PUBLIC_BASE_URL/api`. |
-| `NODE_ENV` | `development` | `production` requires `DATABASE_URL` and `TAICO_ISSUER` |
+| `NODE_ENV` | `development` | `production` requires `DATABASE_URL`, `TAICO_ISSUER` and `SESSION_ENCRYPTION_KEY` |
 | `DATABASE_URL` | unset → PGlite | Postgres connection string |
 | `DATABASE_SSL` | `false` | `true` to require TLS (certificate verified) |
 | `DATABASE_POOL_MAX` | `10` | Connection pool size |
@@ -90,6 +97,11 @@ them by hand: `npm -w @money/backend run migration:run` (with `DATABASE_URL` set
 | `TAICO_ISSUER` | `http://localhost:3000` | Expected `iss` of access tokens |
 | `TAICO_JWKS_URL` | `$TAICO_ISSUER/.well-known/jwks.json` | Where Taico's signing keys are |
 | `TAICO_AUTHORIZATION_SERVERS` | `$TAICO_ISSUER` | Comma-separated authorization servers advertised in resource metadata |
+| `TAICO_WEB_SERVER_ID` | `money-api` | Taico registry entry (URL `$PUBLIC_BASE_URL/api`) used for browser sign-in |
+| `TAICO_WEB_CLIENT_ID` | client metadata URL on https, else unset | Money's client_id for browser sign-in ([docs/web-auth.md](docs/web-auth.md)) |
+| `WEB_APP_URL` | `$PUBLIC_BASE_URL` | Web app base URL; post-login redirects stay under it |
+| `SESSION_ENCRYPTION_KEY` | random per process (dev) | 32 bytes base64; encrypts session tokens at rest. Required in production. |
+| `WEB_SESSION_IDLE_MINUTES` / `WEB_SESSION_MAX_HOURS` | `720` / `168` | Browser session idle and absolute expiry |
 | `MARKET_PRICE_PROVIDER` | `mock` | `mock` or `yahoo` (see below) |
 | `MARKET_PRICE_CACHE_SECONDS` | `300` | How long a quote is reused |
 | `VALUATION_JOB_ENABLED` | `true` (`false` in tests) | Run the daily valuation job in this process |

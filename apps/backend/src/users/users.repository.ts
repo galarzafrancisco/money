@@ -8,6 +8,10 @@ import { UserEntity } from './user.entity';
 export class UsersRepository {
   constructor(private readonly uow: UnitOfWork) {}
 
+  findById(id: string, manager: EntityManager = this.uow.manager): Promise<UserEntity | null> {
+    return manager.findOne(UserEntity, { where: { id } });
+  }
+
   findByIdentity(issuer: string, subject: string, manager: EntityManager = this.uow.manager): Promise<UserEntity | null> {
     return manager.findOne(UserEntity, { where: { issuer, subject } });
   }
