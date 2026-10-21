@@ -14,7 +14,16 @@ apps/       deployable applications
   backend/  REST + MCP API over shared business logic (see apps/backend/README.md)
 packages/   shared libraries
   auth/     @taico/auth, TEMPORARILY vendored from ai-monorepo (see packages/auth/VENDORED.md)
+docs/       repository-wide design guides and review checklists (see docs/README.md)
 ```
+
+## Contributing
+
+Read [AGENTS.md](AGENTS.md) first. It covers product boundaries, commands and
+architecture, and links every design guide and review checklist (index:
+[docs/README.md](docs/README.md)). Reviews check changes against
+[docs/review-guides/](docs/review-guides/) and, for UI work,
+[docs/ui/review.md](docs/ui/review.md).
 
 ## Commands
 
