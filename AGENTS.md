@@ -44,7 +44,9 @@ npm run typecheck   # every project
 
 Builds are orchestrated by **Nx** over npm workspaces. Without `DATABASE_URL`,
 the backend uses embedded PGlite in `apps/backend/.data/pglite`. If port 4180
-is in use, set `PORT`.
+is in use, set `PORT`. Production needs `DATABASE_URL`, or an explicit
+`DATABASE_MODE=memory` (temporary and non-durable: data is lost on every
+restart). See [docs/deployment.md](docs/deployment.md).
 
 ### After making changes
 
@@ -55,8 +57,10 @@ is in use, set `PORT`.
    and `/mcp` answer `401`.
 
 CI (`.github/workflows/ci.yml`) runs the suite on both Postgres and PGlite,
-smoke-tests the container image, and on `main` pushes the image and opens a
-spark-ops deployment PR. See [docs/ci.md](docs/ci.md).
+smoke-tests the container image, renders `install/manifests`, and on `main`
+pushes the image and opens a spark-ops deployment PR that auto-merges. **A
+merge to `main` deploys to https://money.american-broomstick.com right away.**
+See [docs/ci.md](docs/ci.md) and [docs/deployment.md](docs/deployment.md).
 
 ## Repository layout
 
@@ -65,6 +69,8 @@ apps/
 └── backend/   @money/backend: NestJS 11, TypeORM, Postgres/PGlite, MCP SDK, zod, Jest
 packages/
 └── auth/      @taico/auth, temporarily vendored from ai-monorepo (do not edit; see VENDORED.md)
+install/
+└── manifests/ Kustomize base + overlays/main, copied to spark-ops by CI (docs/deployment.md)
 docs/          repository-wide guides (index: docs/README.md)
 ```
 

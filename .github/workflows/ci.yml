@@ -141,11 +141,13 @@ jobs:
 
       - name: Smoke test image
         # Production mode against Postgres: migrations run, /health answers,
-        # unauthenticated /api and /mcp answer 401
+        # unauthenticated /api and /mcp answer 401. Production requires
+        # SESSION_ENCRYPTION_KEY; a throwaway key is generated per run.
         run: |
           set -euo pipefail
           docker run -d --name money-smoke --network host \
             -e PORT=4180 \
+            -e SESSION_ENCRYPTION_KEY="$(openssl rand -base64 32)" \
             -e DATABASE_URL=postgresql://money:money_ci@127.0.0.1:5432/money \
             -e TAICO_ISSUER=https://taico.invalid \
             -e PUBLIC_BASE_URL=http://127.0.0.1:4180 \
@@ -161,9 +163,68 @@ jobs:
           echo "/api -> $api, /mcp -> $mcp"
           if [ "$api" != 401 ] || [ "$mcp" != 401 ]; then docker logs money-smoke; exit 1; fi
 
+      - name: Smoke test image (temporary in-memory mode, as deployed)
+        # Mirrors install/manifests: DATABASE_MODE=memory, read-only root
+        # filesystem, small /tmp, no capabilities. Also checks that production
+        # still refuses to start with no database configured.
+        run: |
+          set -euo pipefail
+          key=$(openssl rand -base64 32)
+          if docker run --rm -e TAICO_ISSUER=https://taico.invalid -e SESSION_ENCRYPTION_KEY="$key" money:ci 2>&1 | tee refuse.log; then
+            echo "image started in production without a database"; exit 1
+          fi
+          grep -q "DATABASE_URL is required in production" refuse.log
+          docker run -d --name money-memory --network host \
+            -e SESSION_ENCRYPTION_KEY="$key" \
+            --read-only --tmpfs /tmp:size=64m --cap-drop ALL --security-opt no-new-privileges \
+            -e PORT=4181 \
+            -e DATABASE_MODE=memory \
+            -e TAICO_ISSUER=https://taico.invalid \
+            -e PUBLIC_BASE_URL=http://127.0.0.1:4181 \
+            money:ci
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:4181/health; then echo; break; fi
+            if [ "$i" = 60 ]; then echo "health check timed out"; docker logs money-memory; exit 1; fi
+            sleep 1
+          done
+          api=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:4181/api/accounts)
+          mcp=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:4181/mcp)
+          echo "/api -> $api, /mcp -> $mcp"
+          if [ "$api" != 401 ] || [ "$mcp" != 401 ]; then docker logs money-memory; exit 1; fi
+
       - name: Show container logs
         if: always()
-        run: docker logs money-smoke 2>&1 | tail -50 || true
+        run: |
+          docker logs money-smoke 2>&1 | tail -50 || true
+          docker logs money-memory 2>&1 | tail -30 || true
+
+  manifests:
+    # main auto-deploys through spark-ops, so manifests must render before merge
+    name: Render deployment manifests
+    runs-on: ubuntu-24.04-arm
+    if: github.event_name != 'release'
+    timeout-minutes: 10
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Kustomize
+        uses: imranismail/setup-kustomize@v2
+
+      - name: Render as the deploy job and spark-ops will
+        # Same image pin as `deploy`, on a copy, then build the overlay Argo CD syncs
+        run: |
+          set -euo pipefail
+          work=$(mktemp -d)
+          cp -r install/manifests "$work/money"
+          printf 'DOMAIN=example.invalid\n' > "$work/money/overlays/main/env.env"
+          (cd "$work/money/base" && kustomize edit set image "$IMAGE=$IMAGE:main-0000000")
+          kustomize build "$work/money/overlays/main" > "$work/rendered.yaml"
+          grep -q "image: $IMAGE:main-0000000" "$work/rendered.yaml"
+          cat "$work/rendered.yaml"
 
   publish:
     # Only job holding packages: write for branch builds. It never runs on
@@ -250,7 +311,7 @@ jobs:
   deploy:
     name: Copy manifests to spark-ops
     runs-on: ubuntu-24.04-arm
-    needs: publish
+    needs: [publish, manifests]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: read

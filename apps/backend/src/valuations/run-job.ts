@@ -14,6 +14,10 @@ import { ValuationJobService } from './valuation-job.service';
 async function main(): Promise<void> {
   const config = loadConfig();
   const logger = new Logger('ValuationRun');
+  if (config.database.driver === 'memory') {
+    // A separate process would get its own, empty in-memory database
+    throw new Error('valuations:run cannot reach an in-memory database (DATABASE_MODE=memory): it belongs to the server process, whose hourly scheduler runs the job');
+  }
   const app = await NestFactory.createApplicationContext(
     AppModule.forRoot({ config: { ...config, valuations: { ...config.valuations, jobEnabled: false } } }),
   );

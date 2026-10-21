@@ -6,11 +6,11 @@ pull request on `galarzafrancisco/spark-ops` that deploys it.
 
 ## Triggers and jobs
 
-| Event | `test` (postgres, pglite) | `image` | `publish` | `release-tag` | `deploy` |
-|---|---|---|---|---|---|
-| Pull request to `main` or `feature/**` | ✔ | build + smoke test | | | |
-| Push to `main` (a merge) | ✔ | build + smoke test | ✔ push to GHCR | | ✔ |
-| Release published | ✔ | | | ✔ | |
+| Event | `test` (postgres, pglite) | `image` | `manifests` | `publish` | `release-tag` | `deploy` |
+|---|---|---|---|---|---|---|
+| Pull request to `main` or `feature/**` | ✔ | build + smoke test | render | | | |
+| Push to `main` (a merge) | ✔ | build + smoke test | render | ✔ push to GHCR | | ✔ |
+| Release published | ✔ | | | | ✔ | |
 
 All jobs run on `ubuntu-24.04-arm`, and the image is `linux/arm64` for the DGX Spark.
 A new commit to a pull request cancels the older run for it. Runs on `main` are
@@ -42,11 +42,24 @@ This job builds the [`Dockerfile`](../Dockerfile), a two-stage `node:24-alpine`
 build that runs as the `node` user and listens on `PORT=4180`. Then it
 smoke-tests the image: it starts the container with `NODE_ENV=production` against a
 Postgres service and checks that migrations run, `/health` answers, and
-unauthenticated `/api` and `/mcp` return `401`.
+unauthenticated `/api` and `/mcp` return `401`. Production requires
+`SESSION_ENCRYPTION_KEY`, so each run generates a throwaway key. A second smoke test runs the
+image the way it is deployed: `DATABASE_MODE=memory`, a read-only root
+filesystem, a tmpfs `/tmp` and no capabilities. It runs the same checks, and
+also checks that production refuses to start with no database configured.
 
 The job never pushes and has a read-only token (`contents: read`). It runs
 pull-request code, and a PR can change workflow steps, so it must not hold
 `packages: write`.
+
+### `manifests`
+
+This job renders `install/manifests/overlays/main` the way `deploy` and Argo CD
+will. It works on a copy: it pins the image with `kustomize edit set image`,
+adds a placeholder `env.env`, runs `kustomize build`, and checks the pinned
+image is in the output. A merge to `main` deploys right away, so a manifest
+that doesn't render must fail on the pull request. `deploy` needs this job.
+See [deployment.md](deployment.md).
 
 ### `publish`
 
@@ -63,7 +76,7 @@ When a GitHub release is published, this job re-tags the existing
 
 ### `deploy`
 
-After a push to `main`, this job:
+After a push to `main`, once `publish` and `manifests` have passed, this job:
 
 1. copies `install/manifests/` to `spark-ops/k8s/money/` (it replaces the old copy),
 2. runs `kustomize edit set image ghcr.io/galarzafrancisco/money=ghcr.io/galarzafrancisco/money:main-<sha7>` in `k8s/money/base`,
@@ -98,8 +111,8 @@ receive `SPARK_OPS_TOKEN` or a GHCR-writable `GITHUB_TOKEN`. The `deploy`,
 
 ## Contract with the deployment manifests
 
-The manifests are owned by the deployment-manifests task, not by CI. The
-`deploy` job expects:
+The manifests live in `install/manifests` and are described in
+[deployment.md](deployment.md). The `deploy` job expects:
 
 - `install/manifests/base/kustomization.yaml` exists and references the image
   `ghcr.io/galarzafrancisco/money` (in `images:` or in a resource), so that
@@ -113,9 +126,9 @@ Because spark-ops auto-merges, a merge to `main` that changes `install/manifests
 
 ## Assumptions and known gaps
 
-- **The image refuses to start without `DATABASE_URL` in production.** The
-  temporary in-memory database mode for the first deployment belongs to the
-  manifests task. CI only smoke-tests the image against Postgres.
+- **The deployment is temporarily in-memory** (`DATABASE_MODE=memory`): every
+  deploy starts from an empty database. See [deployment.md](deployment.md).
+  The Postgres test leg and the Postgres image smoke test stay required.
 - **GHCR package visibility.** The first push creates the
   `ghcr.io/galarzafrancisco/money` package, which may be private. The cluster
   needs to be able to pull it, either because the package is public or through
