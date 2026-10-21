@@ -1,0 +1,81 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: money
+  namespace: money
+  labels:
+    app: money
+spec:
+  # Exactly one pod. The database lives in the pod's memory, so a second
+  # replica would be a second, separate database.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: money
+  template:
+    metadata:
+      labels:
+        app: money
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: money
+          image: ghcr.io/galarzafrancisco/money:main
+          ports:
+            - containerPort: 4180
+              name: http
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: money-config
+            # SESSION_ENCRYPTION_KEY (32 random bytes, base64): encrypts Taico
+            # tokens of browser sessions at rest. Provisioned out of band,
+            # never committed. Not optional: a missing key must stop the pod.
+            - secretRef:
+                name: money-session
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "100m"
+            # The whole database is held in this memory. Hitting the limit
+            # kills the pod and loses every record. Measured: ~350 MiB RSS idle
+            # after startup, ~1.1 GiB peak while PGlite starts and migrates.
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 2
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+          # Generous: a liveness restart wipes the in-memory database.
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi

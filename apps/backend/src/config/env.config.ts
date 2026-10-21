@@ -13,7 +13,14 @@ export type AppConfig = {
   publicBaseUrl: string;
   database:
     | { driver: 'postgres'; url: string; ssl: boolean; poolMax: number }
-    | { driver: 'pglite'; dataDir: string };
+    /** Embedded PGlite on disk, in process. Development only */
+    | { driver: 'pglite'; dataDir: string }
+    /**
+     * Embedded PGlite held in process memory, served over a loopback socket
+     * (see database/in-memory-database.ts). NON-DURABLE: every restart or
+     * redeploy starts from an empty database.
+     */
+    | { driver: 'memory' };
   auth: {
     /** The `iss` Taico access tokens carry */
     issuer: string;
@@ -88,14 +95,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   if (!Number.isInteger(port) || port <= 0) throw new Error(`PORT must be a positive integer, got ${env.PORT}`);
   const publicBaseUrl = stripSlash(env.PUBLIC_BASE_URL ?? `http://localhost:${port}`);
 
-  let database: AppConfig['database'];
-  if (env.DATABASE_URL) {
-    database = { driver: 'postgres', url: env.DATABASE_URL, ssl: env.DATABASE_SSL === 'true', poolMax: parseInt(env.DATABASE_POOL_MAX ?? '10', 10) };
-  } else if (nodeEnv === 'production') {
-    throw new Error('DATABASE_URL is required in production (embedded PGlite is for development and tests only)');
-  } else {
-    database = { driver: 'pglite', dataDir: env.PGLITE_DATA_DIR ?? '.data/pglite' };
-  }
+  const database = loadDatabaseConfig(env, nodeEnv);
 
   if (nodeEnv === 'production' && !env.TAICO_ISSUER) {
     throw new Error('TAICO_ISSUER is required in production');
@@ -183,6 +183,52 @@ function loadWebAuthConfig(env: NodeJS.ProcessEnv, nodeEnv: AppConfig['nodeEnv']
     absoluteTimeoutHours: intEnv(env, 'WEB_SESSION_MAX_HOURS', 7 * 24, 1, 90 * 24),
     loginTimeoutSeconds: 600,
   };
+}
+
+export const DATABASE_MODES = ['postgres', 'pglite', 'memory'] as const;
+export type DatabaseMode = (typeof DATABASE_MODES)[number];
+
+/**
+ * DATABASE_MODE picks the database explicitly:
+ * - `postgres`: DATABASE_URL (required). The only durable production option.
+ * - `pglite`: embedded PGlite on disk at PGLITE_DATA_DIR. Development and tests only.
+ * - `memory`: embedded PGlite held in process memory. Allowed in production as a
+ *   temporary, NON-DURABLE stopgap: all data and sessions are lost on restart.
+ * Unset means `postgres` when DATABASE_URL is set, else `pglite` outside
+ * production. Production never falls back to an embedded database on its own.
+ */
+function loadDatabaseConfig(env: NodeJS.ProcessEnv, nodeEnv: AppConfig['nodeEnv']): AppConfig['database'] {
+  const rawMode = env.DATABASE_MODE?.trim();
+  if (rawMode && !(DATABASE_MODES as readonly string[]).includes(rawMode)) {
+    throw new Error(`DATABASE_MODE must be one of ${DATABASE_MODES.join(', ')}, got ${rawMode}`);
+  }
+  const mode = rawMode as DatabaseMode | undefined;
+
+  if (mode === 'memory' || mode === 'pglite') {
+    if (env.DATABASE_URL) {
+      throw new Error(`DATABASE_MODE=${mode} and DATABASE_URL are both set; unset one so the database in use is unambiguous`);
+    }
+    if (mode === 'memory') return { driver: 'memory' };
+    if (nodeEnv === 'production') {
+      throw new Error('DATABASE_MODE=pglite is not allowed in production; use DATABASE_URL, or DATABASE_MODE=memory for a temporary non-durable deployment');
+    }
+    return pgliteOnDisk(env);
+  }
+
+  if (env.DATABASE_URL) {
+    return { driver: 'postgres', url: env.DATABASE_URL, ssl: env.DATABASE_SSL === 'true', poolMax: parseInt(env.DATABASE_POOL_MAX ?? '10', 10) };
+  }
+  if (mode === 'postgres') throw new Error('DATABASE_MODE=postgres requires DATABASE_URL');
+  if (nodeEnv === 'production') {
+    throw new Error(
+      'DATABASE_URL is required in production. Set DATABASE_MODE=memory only for a temporary deployment whose data may be lost on every restart',
+    );
+  }
+  return pgliteOnDisk(env);
+}
+
+function pgliteOnDisk(env: NodeJS.ProcessEnv): AppConfig['database'] {
+  return { driver: 'pglite', dataDir: env.PGLITE_DATA_DIR ?? '.data/pglite' };
 }
 
 function intEnv(env: NodeJS.ProcessEnv, name: string, fallback: number, min: number, max: number): number {

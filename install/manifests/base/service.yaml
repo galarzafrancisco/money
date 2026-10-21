@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: money
+  namespace: money
+  labels:
+    app: money
+spec:
+  type: ClusterIP
+  selector:
+    app: money
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP

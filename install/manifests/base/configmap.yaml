@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: money-config
+  namespace: money
+data:
+  # NODE_ENV=production and PORT=4180 come from the image.
+  PUBLIC_BASE_URL: https://money.american-broomstick.com
+  # Taico signs access tokens with this issuer; JWKS is {issuer}/.well-known/jwks.json.
+  # Audiences are $PUBLIC_BASE_URL/mcp and $PUBLIC_BASE_URL/api.
+  TAICO_ISSUER: https://taico.app
+  # Authorization server of Taico's registered `money` MCP server entry,
+  # advertised in protected-resource metadata so MCP clients can sign in.
+  TAICO_AUTHORIZATION_SERVERS: https://taico.app/mcp/money/0.0.0
+  # TEMPORARY, NON-DURABLE: there is no PostgreSQL for Money yet. Every
+  # restart, redeploy, eviction or crash starts from an EMPTY database and
+  # signs everyone out. Not fit for real financial records. Replace with
+  # DATABASE_URL (from a Secret) once persistent storage exists.
+  DATABASE_MODE: memory
+  # Labelled mock prices. "yahoo" is the unofficial keyless opt-in.
+  MARKET_PRICE_PROVIDER: mock
