@@ -6,11 +6,11 @@ pull request on `galarzafrancisco/spark-ops` that deploys it.
 
 ## Triggers and jobs
 
-| Event | `test` (postgres, pglite) | `image` | `release-tag` | `deploy` |
-|---|---|---|---|---|
-| Pull request to `main` or `feature/**` | ✔ | build + smoke test, **no push** | | |
-| Push to `main` (a merge) | ✔ | build + smoke test + **push** | | ✔ |
-| Release published | ✔ | | ✔ | |
+| Event | `test` (postgres, pglite) | `image` | `publish` | `release-tag` | `deploy` |
+|---|---|---|---|---|---|
+| Pull request to `main` or `feature/**` | ✔ | build + smoke test | | | |
+| Push to `main` (a merge) | ✔ | build + smoke test | ✔ push to GHCR | | ✔ |
+| Release published | ✔ | | | ✔ | |
 
 All jobs run on `ubuntu-24.04-arm`, and the image is `linux/arm64` for the DGX Spark.
 A new commit to a pull request cancels the older run for it. Runs on `main` are
@@ -42,8 +42,19 @@ This job builds the [`Dockerfile`](../Dockerfile), a two-stage `node:24-alpine`
 build that runs as the `node` user and listens on `PORT=4180`. Then it
 smoke-tests the image: it starts the container with `NODE_ENV=production` against a
 Postgres service and checks that migrations run, `/health` answers, and
-unauthenticated `/api` and `/mcp` return `401`. Only on `main` does the job log in to GHCR
-and push.
+unauthenticated `/api` and `/mcp` return `401`.
+
+The job never pushes and has a read-only token (`contents: read`). It runs
+pull-request code, and a PR can change workflow steps, so it must not hold
+`packages: write`.
+
+### `publish`
+
+Only on pushes to `main`, after `image` passes, this job rebuilds the same
+commit (layers come from the GitHub Actions build cache that `image` filled), logs
+in to GHCR and pushes the tags below. It is the only branch-build job with
+`packages: write`, and it never runs for `pull_request` events, so a pull
+request can't get a token that writes to GHCR.
 
 ### `release-tag`
 
@@ -79,10 +90,11 @@ notice and opens no PR. The image is still pushed.
 | Name | Used by | Purpose |
 |---|---|---|
 | `SPARK_OPS_TOKEN` | `deploy` | Check out spark-ops and open the deployment PR there. Same name as in ai-monorepo |
-| `GITHUB_TOKEN` (automatic) | `image`, `release-tag` | Push to GHCR (`packages: write`) |
+| `GITHUB_TOKEN` (automatic) | `publish`, `release-tag` | Push to GHCR (`packages: write`). Every other job gets `contents: read` only |
 
 Secrets are only passed to actions and are never echoed. Pull requests never
-receive `SPARK_OPS_TOKEN`, because the `deploy` job runs only on pushes to `main`.
+receive `SPARK_OPS_TOKEN` or a GHCR-writable `GITHUB_TOKEN`. The `deploy`,
+`publish` and `release-tag` jobs never run on `pull_request` events.
 
 ## Contract with the deployment manifests
 

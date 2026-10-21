@@ -97,6 +97,8 @@ jobs:
         run: npm -w @money/backend test -- --maxWorkers=2 --ci
 
   image:
+    # Runs untrusted PR code, so it gets a read-only token. Publishing is the
+    # separate main-only `publish` job, the only one with packages: write.
     name: Build container image
     runs-on: ubuntu-24.04-arm
     needs: test
@@ -104,7 +106,6 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
-      packages: write
 
     services:
       postgres:
@@ -128,18 +129,6 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Extract metadata for Docker
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.IMAGE }}
-          tags: |
-            type=ref,event=branch
-            type=sha,prefix={{branch}}-,enable=${{ github.event_name == 'push' }}
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-          labels: |
-            org.opencontainers.image.source.branch=${{ github.ref_name }}
-
       - name: Build image
         uses: docker/build-push-action@v6
         with:
@@ -147,7 +136,6 @@ jobs:
           platforms: linux/arm64
           load: true
           tags: money:ci
-          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -177,8 +165,38 @@ jobs:
         if: always()
         run: docker logs money-smoke 2>&1 | tail -50 || true
 
+  publish:
+    # Only job holding packages: write for branch builds. It never runs on
+    # pull_request events, so PR code cannot obtain a GHCR-writable token.
+    name: Push container image
+    runs-on: ubuntu-24.04-arm
+    needs: image
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest
+          labels: |
+            org.opencontainers.image.source.branch=${{ github.ref_name }}
+
       - name: Log in to GitHub Container Registry
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -186,8 +204,8 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Push image
-        # Same inputs as the smoke-tested build, so this is served from the build cache
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        # Same commit and Dockerfile as the smoke-tested build in `image`, so
+        # layers come from the shared GHA build cache
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -232,7 +250,7 @@ jobs:
   deploy:
     name: Copy manifests to spark-ops
     runs-on: ubuntu-24.04-arm
-    needs: image
+    needs: publish
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: read
