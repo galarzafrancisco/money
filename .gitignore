@@ -154,3 +154,6 @@ vite.config.ts.timestamp-*
 # Nx
 .nx/cache
 .nx/workspace-data
+
+# Money backend: local embedded PGlite data
+.data/

@@ -1,0 +1,104 @@
+import type { MoneyDecimal } from '../common/decimal';
+
+export const TRANSACTION_TYPES = ['DEPOSIT', 'WITHDRAWAL', 'FX_CONVERSION', 'BUY', 'SELL', 'DIVIDEND'] as const;
+export type TransactionType = (typeof TRANSACTION_TYPES)[number];
+
+type Base = {
+  id: string;
+  /** Economic date (YYYY-MM-DD) */
+  date: string;
+  /** Insertion order, the tie-break between entries on the same date */
+  sequence: number;
+};
+
+export type CashEntry = Base & { type: 'DEPOSIT' | 'WITHDRAWAL'; currency: string; amount: MoneyDecimal };
+export type FxEntry = Base & {
+        type: 'FX_CONVERSION';
+        fromCurrency: string;
+        fromAmount: MoneyDecimal;
+        toCurrency: string;
+        toAmount: MoneyDecimal;
+        /** Charged in fromCurrency, on top of fromAmount */
+        fees: MoneyDecimal;
+      };
+export type TradeEntry = Base & {
+        type: 'BUY' | 'SELL';
+        symbol: string;
+        currency: string;
+        quantity: MoneyDecimal;
+        unitPrice: MoneyDecimal;
+        fees: MoneyDecimal;
+        /** BUY: cash paid incl. fees. SELL: cash received net of fees. */
+        total: MoneyDecimal;
+      };
+export type DividendEntry = Base & {
+        type: 'DIVIDEND';
+        symbol: string;
+        currency: string;
+        grossAmount: MoneyDecimal;
+        withholdingTax: MoneyDecimal;
+        netAmount: MoneyDecimal;
+        frankingCredits: MoneyDecimal;
+      };
+
+export type LedgerEntry = CashEntry | FxEntry | TradeEntry | DividendEntry;
+
+/** A parcel of shares bought by one BUY, as far as it has not been sold */
+export type Lot = {
+  lotId: string;
+  symbol: string;
+  currency: string;
+  acquiredOn: string;
+  originalQuantity: MoneyDecimal;
+  /** Total cost base of the parcel when bought: price × quantity + brokerage */
+  originalCostBase: MoneyDecimal;
+  remainingQuantity: MoneyDecimal;
+  remainingCostBase: MoneyDecimal;
+};
+
+/** The part of one SELL matched against one lot */
+export type Disposal = {
+  sellTransactionId: string;
+  lotId: string;
+  symbol: string;
+  currency: string;
+  acquiredOn: string;
+  disposedOn: string;
+  quantity: MoneyDecimal;
+  costBase: MoneyDecimal;
+  /** Share of the sale's net proceeds (after brokerage) */
+  proceeds: MoneyDecimal;
+  gain: MoneyDecimal;
+  /**
+   * Disposed of more than 12 months after acquisition, the ATO's test for the
+   * CGT discount. Informational only: no discount is applied.
+   */
+  heldOverTwelveMonths: boolean;
+};
+
+export type Position = {
+  symbol: string;
+  currency: string;
+  quantity: MoneyDecimal;
+  costBase: MoneyDecimal;
+  lots: Lot[];
+};
+
+export type DividendTotals = {
+  currency: string;
+  grossAmount: MoneyDecimal;
+  withholdingTax: MoneyDecimal;
+  netAmount: MoneyDecimal;
+  frankingCredits: MoneyDecimal;
+};
+
+export type LedgerState = {
+  /** Cash per currency; currencies that were ever used stay listed */
+  cash: Map<string, MoneyDecimal>;
+  /** Open positions only (quantity > 0) */
+  positions: Map<string, Position>;
+  disposals: Disposal[];
+  dividends: Map<string, DividendTotals>;
+  /** Dividends per symbol and currency */
+  dividendsBySymbol: Map<string, DividendTotals & { symbol: string }>;
+};
