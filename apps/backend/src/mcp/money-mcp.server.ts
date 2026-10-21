@@ -4,10 +4,14 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import { createAccountSchema, updateAccountSchema } from '../accounts/accounts.schemas';
 import { AccountsService } from '../accounts/accounts.service';
+import { createCategorySchema, holdingCategorySchema, updateCategorySchema } from '../categories/categories.schemas';
+import { CategoriesService } from '../categories/categories.service';
 import { DomainError } from '../common/errors';
 import { tickerSymbol } from '../common/validation';
 import { MarketPricesService } from '../market-prices/market-prices.service';
 import { PortfolioService } from '../portfolio/portfolio.service';
+import { reportOptionsSchema } from '../reports/reports.schemas';
+import { ReportsService } from '../reports/reports.service';
 import {
   depositShape,
   dividendShape,
@@ -24,6 +28,7 @@ const PERSONAL_TRACKING =
   'Money only records activity that happened elsewhere and updates its own tracking balances. It never moves money, contacts a bank or broker, or places trades.';
 
 const accountId = z.string().describe('Account ID (from list_accounts)');
+const categoryId = z.string().describe('Category ID (from list_categories)');
 const transactionId = z.string().describe('Transaction ID (from list_transactions)');
 
 /**
@@ -39,6 +44,8 @@ export class MoneyMcpServerFactory {
     private readonly transactions: TransactionsService,
     private readonly portfolio: PortfolioService,
     private readonly prices: MarketPricesService,
+    private readonly categories: CategoriesService,
+    private readonly reports: ReportsService,
   ) {}
 
   build(user: CurrentUser): McpServer {
@@ -67,24 +74,81 @@ export class MoneyMcpServerFactory {
 
     tool('whoami', 'The Money user the current access token maps to', read, {}, async () => user);
 
-    tool('list_accounts', 'List your accounts', read, {}, () => this.accounts.list(user));
+    tool('list_accounts', 'List your accounts and subaccounts (flat; parentAccountId links a subaccount to its parent). get_accounts_report gives the tree with balances.', read, {}, () => this.accounts.list(user));
     tool('get_account', 'Get one account', read, { accountId }, ({ accountId }) => this.accounts.get(user, accountId));
     tool(
       'create_account',
-      'Create a named account (a tracking record, not a real bank or brokerage account)',
+      'Create a named account (a tracking record, not a real bank or brokerage account). Give parentAccountId to make it a subaccount (bucket) of another account, e.g. "Term Deposit 1" under your bank account. Each subaccount has its own transactions.',
       write,
       createAccountSchema.shape,
       (args) => this.accounts.create(user, args),
     );
-    tool('update_account', 'Rename or edit an account', write, { accountId, ...updateAccountSchema.shape }, ({ accountId, ...changes }) =>
+    tool('update_account', 'Rename or edit an account, move it under another account (parentAccountId; null for top-level), or set its category (categoryId; null to inherit its parent\'s)', write, { accountId, ...updateAccountSchema.shape }, ({ accountId, ...changes }) =>
       this.accounts.update(user, accountId, changes),
     );
     tool(
       'delete_account',
-      'Delete an account. An account with transactions needs deleteTransactions: true, which deletes them too.',
+      'Delete an account. An account with subaccounts is refused; move or delete them first. An account with transactions needs deleteTransactions: true, which deletes them too.',
       destructive,
       { accountId, deleteTransactions: z.boolean().optional().describe('Also delete the account\'s transactions') },
       ({ accountId, deleteTransactions }) => this.accounts.delete(user, accountId, { deleteTransactions }),
+    );
+
+    tool(
+      'list_categories',
+      'List your categories: your own labels for how you think about money (e.g. alpha-high-risk, boring-etf, emergency)',
+      read,
+      {},
+      () => this.categories.list(user),
+    );
+    tool('get_category', 'Get one category and how many accounts and holdings have it as their own', read, { categoryId }, ({ categoryId }) =>
+      this.categories.get(user, categoryId),
+    );
+    tool(
+      'create_category',
+      'Create a category. Assign it to an account or subaccount with update_account, or to one holding with set_holding_category.',
+      write,
+      createCategorySchema.shape,
+      (args) => this.categories.create(user, args),
+    );
+    tool('update_category', 'Rename a category or change its description or colour', write, { categoryId, ...updateCategorySchema.shape }, ({ categoryId, ...changes }) =>
+      this.categories.update(user, categoryId, changes),
+    );
+    tool(
+      'delete_category',
+      'Delete a category. If it is assigned, unassign: true is required; those accounts and holdings then inherit their category again.',
+      destructive,
+      { categoryId, unassign: z.boolean().optional().describe('Clear its assignments and delete it') },
+      ({ categoryId, unassign }) => this.categories.delete(user, categoryId, { unassign }),
+    );
+    tool(
+      'set_holding_category',
+      'Give one holding (a symbol in one account, e.g. TSLA in your broker account) its own category, overriding the account\'s. categoryId null clears it. One category per holding.',
+      write,
+      { accountId, ...holdingCategorySchema.shape },
+      ({ accountId, ...input }) => this.categories.setHoldingCategory(user, accountId, input),
+    );
+    tool(
+      'list_holding_categories',
+      'List the holdings that have their own category, optionally for one account',
+      read,
+      { accountId: accountId.optional() },
+      ({ accountId }) => this.categories.listHoldingCategories(user, accountId),
+    );
+
+    tool(
+      'get_accounts_report',
+      'Balances and valuations as an account tree: per account "own" (its ledger) and "rolledUp" (plus all subaccounts), per currency. "totals" counts everything once; never add rolledUp figures across levels. Converted totals need baseCurrency and fxRates.',
+      read,
+      reportOptionsSchema.shape,
+      (args) => this.reports.accountsReport(user, args),
+    );
+    tool(
+      'get_categories_report',
+      'Balances and valuations grouped by category. Every cash balance and holding is in exactly one category (holding\'s own, else account\'s, else nearest parent\'s, else Uncategorized), so category totals add up to the overall total. Converted totals need baseCurrency and fxRates.',
+      read,
+      reportOptionsSchema.shape,
+      (args) => this.reports.categoriesReport(user, args),
     );
 
     tool(

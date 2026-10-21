@@ -14,6 +14,7 @@ calls.
 |---|---|
 | [docs/data-model.md](docs/data-model.md) | Architecture, tables, how derived state is computed, edit and delete semantics |
 | [docs/api.md](docs/api.md) | REST endpoints, MCP tools, errors |
+| [docs/categories.md](docs/categories.md) | Subaccounts (buckets), user-defined categories, roll-up and category reports, FX policy |
 | [docs/accounting-assumptions.md](docs/accounting-assumptions.md) | Australian cost base, lots, FX and dividend assumptions, plus open questions |
 
 ## Architecture

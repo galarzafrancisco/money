@@ -54,3 +54,9 @@ export const tickerSymbol = z
   .describe('Ticker symbol. Use the exchange suffix for non-US listings, e.g. VAS.AX for the ASX');
 
 export const uuid = z.string().uuid();
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** IDs are checked before they reach a query, so a malformed one is simply "not found" */
+export function isUuid(value: string): boolean {
+  return UUID_PATTERN.test(value);
+}

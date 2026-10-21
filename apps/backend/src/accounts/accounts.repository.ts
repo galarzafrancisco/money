@@ -26,13 +26,35 @@ export class AccountsRepository {
       .getOne();
   }
 
-  async nameTaken(userId: string, name: string, exceptId: string | null, manager: EntityManager = this.uow.manager): Promise<boolean> {
+  /**
+   * Locks the user's row until the transaction ends. Every change to the
+   * account hierarchy takes this lock first, so two concurrent moves cannot
+   * together create a cycle or exceed the depth limit.
+   */
+  async lockHierarchy(userId: string, manager: EntityManager): Promise<void> {
+    await manager.query('SELECT id FROM users WHERE id = $1 FOR UPDATE', [userId]);
+  }
+
+  /** Whether a sibling (same parent) already has this name, ignoring case */
+  async nameTaken(
+    userId: string,
+    name: string,
+    parentAccountId: string | null,
+    exceptId: string | null,
+    manager: EntityManager = this.uow.manager,
+  ): Promise<boolean> {
     const query = manager
       .getRepository(AccountEntity)
       .createQueryBuilder('account')
       .where('account.user_id = :userId AND lower(account.name) = lower(:name)', { userId, name });
+    if (parentAccountId) query.andWhere('account.parent_account_id = :parentAccountId', { parentAccountId });
+    else query.andWhere('account.parent_account_id IS NULL');
     if (exceptId) query.andWhere('account.id <> :exceptId', { exceptId });
     return (await query.getCount()) > 0;
+  }
+
+  countChildren(userId: string, accountId: string, manager: EntityManager = this.uow.manager): Promise<number> {
+    return manager.count(AccountEntity, { where: { userId, parentAccountId: accountId } });
   }
 
   save(account: AccountEntity, manager: EntityManager = this.uow.manager): Promise<AccountEntity> {

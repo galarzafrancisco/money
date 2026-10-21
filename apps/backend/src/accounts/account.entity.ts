@@ -6,6 +6,7 @@ export type AccountType = (typeof ACCOUNT_TYPES)[number];
 
 @Entity('accounts')
 @Index('IDX_accounts_user', ['userId'])
+@Index('IDX_accounts_parent', ['parentAccountId'])
 export class AccountEntity {
   @PrimaryColumn('uuid')
   id: string;
@@ -17,7 +18,18 @@ export class AccountEntity {
   @JoinColumn({ name: 'user_id' })
   user?: UserEntity;
 
-  /** Unique per user, ignoring case (enforced by UQ_accounts_user_name) */
+  /**
+   * The account this one is a subaccount (bucket) of, or null for a top-level
+   * account. Always the same user's account (composite FK FK_accounts_parent).
+   */
+  @Column({ name: 'parent_account_id', type: 'uuid', nullable: true })
+  parentAccountId: string | null;
+
+  /** The account's own category; null means it inherits from its parent (see docs/categories.md) */
+  @Column({ name: 'category_id', type: 'uuid', nullable: true })
+  categoryId: string | null;
+
+  /** Unique among siblings (same user and parent), ignoring case (UQ_accounts_user_parent_name) */
   @Column({ type: 'varchar', length: 120 })
   name: string;
 
