@@ -6,8 +6,9 @@ metadata:
   labels:
     app: money
 spec:
-  # Exactly one pod. The database lives in the pod's memory, so a second
-  # replica would be a second, separate database.
+  # One pod, replaced with Recreate: migrations run on startup, and TypeORM
+  # doesn't serialize two pods migrating the same database at once. Data lives
+  # in PostgreSQL, so replacing the pod loses nothing.
   replicas: 1
   strategy:
     type: Recreate
@@ -30,6 +31,17 @@ spec:
             - containerPort: 4180
               name: http
               protocol: TCP
+          env:
+            # postgresql://money:<password>@money-postgres:5432/money. The
+            # Secret, the money-postgres Service and its EndpointSlice belong
+            # to spark-ops (bootstrap/money-postgres.sh); Money only consumes
+            # them. Never copy the value into Git. Not optional: without it
+            # production refuses to start, it never falls back to memory.
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: money-database
+                  key: DATABASE_URL
           envFrom:
             - configMapRef:
                 name: money-config
@@ -55,13 +67,13 @@ spec:
               mountPath: /tmp
           resources:
             requests:
-              memory: "512Mi"
+              memory: "256Mi"
               cpu: "100m"
-            # The whole database is held in this memory. Hitting the limit
-            # kills the pod and loses every record. Measured: ~350 MiB RSS idle
-            # after startup, ~1.1 GiB peak while PGlite starts and migrates.
+            # The database is outside the pod now. Measured against Postgres
+            # (hardened image, after startup migrations): ~90 MiB. The limit
+            # leaves room for full-ledger replays and valuation backfills.
             limits:
-              memory: "2Gi"
+              memory: "1Gi"
               cpu: "1000m"
           startupProbe:
             httpGet:
@@ -74,7 +86,9 @@ spec:
               path: /health
               port: http
             periodSeconds: 5
-          # Generous: a liveness restart wipes the in-memory database.
+          # /health runs SELECT 1, so a Postgres outage turns the pod unready
+          # and, after ~2 minutes, restarts it. Lenient so a short database
+          # restart doesn't cause one.
           livenessProbe:
             httpGet:
               path: /health

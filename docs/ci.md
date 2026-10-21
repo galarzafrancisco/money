@@ -21,12 +21,13 @@ never cancelled, so every merge reaches spark-ops.
 The suite runs twice, as a matrix:
 
 - **postgres**: a `postgres:16-alpine` service, with `TEST_POSTGRES_URL` set to
-  its admin connection. Each test file creates and drops its own database. Only
+  its admin connection. Production runs PostgreSQL 16 too. Each test file
+  creates and drops its own database. Only
   this leg runs the concurrency, lock-ordering and trigger tests, which are
   skipped on PGlite.
 - **pglite**: no `TEST_POSTGRES_URL`. Each test file gets an in-memory PGlite in a
-  child process. Development uses this back end, and so does the temporary
-  in-memory deployment.
+  child process. Development uses this back end, and so does the
+  `DATABASE_MODE=memory` runtime.
 
 Both legs are required. The Postgres leg does not depend on how production is
 deployed: keep it when the runtime changes.
@@ -43,13 +44,17 @@ build that runs as uid/gid `1000:1000` (the base image's `node` user, given by
 number) and listens on `PORT=4180`. It first checks that the image `USER` is
 numeric and non-zero and still maps to `node`: the kubelet refuses
 `runAsNonRoot` with a named user, and Docker doesn't enforce that check. Then it
-smoke-tests the image: it starts the container with `NODE_ENV=production` against a
-Postgres service and checks that migrations run, `/health` answers, and
-unauthenticated `/api` and `/mcp` return `401`. Production requires
-`SESSION_ENCRYPTION_KEY`, so each run generates a throwaway key. A second smoke test runs the
-image the way it is deployed: `DATABASE_MODE=memory`, uid/gid `1000:1000`, a read-only root
-filesystem, a tmpfs `/tmp` and no capabilities. It runs the same checks, and
-also checks that production refuses to start with no database configured.
+smoke-tests the image the way it is deployed: `NODE_ENV=production`,
+`DATABASE_MODE=postgres`, `DATABASE_SSL=false` and `DATABASE_URL` pointing at a
+Postgres service, uid/gid `1000:1000`, a read-only root filesystem, a tmpfs
+`/tmp` and no capabilities. It checks that migrations run, `/health` answers,
+unauthenticated `/api` and `/mcp` return `401`, and the web app is served. Then
+it writes a row, replaces the container as a redeploy would, and checks that
+the migrations were a no-op and the row is still there. Production requires
+`SESSION_ENCRYPTION_KEY`, so each run generates a throwaway key. A second smoke
+test runs the still-supported, non-durable `DATABASE_MODE=memory` with the same
+hardening, and checks that production refuses to start with no database, or
+with `DATABASE_MODE=postgres` and no `DATABASE_URL`.
 
 The job never pushes and has a read-only token (`contents: read`). It runs
 pull-request code, and a PR can change workflow steps, so it must not hold
@@ -64,7 +69,12 @@ image is in the output. Then
 [`scripts/check-manifest-security.mjs`](../scripts/check-manifest-security.mjs)
 checks every container's effective security context: `runAsNonRoot`, numeric
 non-zero `runAsUser`/`runAsGroup`, no privilege escalation, read-only root
-filesystem, all capabilities dropped and a seccomp profile. A merge to `main` deploys right away, so a manifest
+filesystem, all capabilities dropped and a seccomp profile.
+[`scripts/check-manifest-database.mjs`](../scripts/check-manifest-database.mjs)
+checks that the Deployment runs `DATABASE_MODE=postgres` and takes
+`DATABASE_URL` only from the spark-ops Secret `money-database` (non-optional,
+no literal value, not in a ConfigMap), and that the manifests don't define
+that Secret or the `money-postgres` Service. A merge to `main` deploys right away, so a manifest
 that doesn't render must fail on the pull request. `deploy` needs this job.
 See [deployment.md](deployment.md).
 
@@ -133,9 +143,9 @@ Because spark-ops auto-merges, a merge to `main` that changes `install/manifests
 
 ## Assumptions and known gaps
 
-- **The deployment is temporarily in-memory** (`DATABASE_MODE=memory`): every
-  deploy starts from an empty database. See [deployment.md](deployment.md).
-  The Postgres test leg and the Postgres image smoke test stay required.
+- **The deployment uses PostgreSQL** provisioned by spark-ops. CI never reaches
+  that database: the smoke tests use a Postgres service container, and the
+  live database is only checked after a rollout. See [deployment.md](deployment.md).
 - **GHCR package visibility.** The first push creates the
   `ghcr.io/galarzafrancisco/money` package, which may be private. The cluster
   needs to be able to pull it, either because the package is public or through
