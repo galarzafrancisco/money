@@ -33,6 +33,12 @@ import { TransfersController } from './transfers/transfers.controller';
 import { TransfersRepository } from './transfers/transfers.repository';
 import { TransfersService } from './transfers/transfers.service';
 import { UsersRepository } from './users/users.repository';
+import { PriceHistoryService } from './valuations/price-history.service';
+import { ValuationJobService } from './valuations/valuation-job.service';
+import { ValuationScheduler } from './valuations/valuation.scheduler';
+import { ValuationsController } from './valuations/valuations.controller';
+import { ValuationsRepository } from './valuations/valuations.repository';
+import { ValuationsService } from './valuations/valuations.service';
 import { UsersService } from './users/users.service';
 
 export type AppModuleOptions = {
@@ -61,7 +67,7 @@ export class AppModule {
           metadata: { resources: protectedResources(config), authorizationServers: config.auth.authorizationServers },
         }),
       ],
-      controllers: [HealthController, AccountsController, TransactionsController, PortfolioController, CategoriesController, ReportsController, TransfersController, McpController],
+      controllers: [HealthController, AccountsController, TransactionsController, PortfolioController, CategoriesController, ReportsController, TransfersController, ValuationsController, McpController],
       providers: [
         { provide: APP_CONFIG, useValue: config },
         { provide: MARKET_PRICE_PROVIDER, useValue: options.priceProvider ?? priceProviderFor(config) },
@@ -82,9 +88,14 @@ export class AppModule {
         TransfersService,
         PortfolioService,
         MarketPricesService,
+        PriceHistoryService,
+        ValuationsRepository,
+        ValuationJobService,
+        ValuationsService,
+        ValuationScheduler,
         MoneyMcpServerFactory,
       ],
-      exports: [MARKET_PRICE_PROVIDER, MarketPricesService],
+      exports: [MARKET_PRICE_PROVIDER, MarketPricesService, ValuationJobService],
     };
   }
 }

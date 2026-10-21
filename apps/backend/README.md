@@ -91,6 +91,10 @@ them by hand: `npm -w @money/backend run migration:run` (with `DATABASE_URL` set
 | `TAICO_AUTHORIZATION_SERVERS` | `$TAICO_ISSUER` | Comma-separated authorization servers advertised in resource metadata |
 | `MARKET_PRICE_PROVIDER` | `mock` | `mock` or `yahoo` (see below) |
 | `MARKET_PRICE_CACHE_SECONDS` | `300` | How long a quote is reused |
+| `VALUATION_JOB_ENABLED` | `true` (`false` in tests) | Run the daily valuation job in this process |
+| `VALUATION_JOB_INTERVAL_MINUTES` | `60` | How often the job looks for due dates |
+| `VALUATION_SETTLE_HOUR_UTC` | `6` | Date D is valued once D+1 at this UTC hour has passed |
+| `VALUATION_BACKFILL_DAYS` / `VALUATION_RECHECK_DAYS` / `VALUATION_MAX_CARRY_DAYS` / `VALUATION_MAX_DAYS_PER_RUN` | `366` / `7` / `7` / `400` | See [docs/valuations.md](docs/valuations.md) |
 
 ## Market prices
 
@@ -111,6 +115,17 @@ Prices come through the `MarketPriceProvider` port (`src/market-prices/market-pr
 A holding is only valued when the quote's currency matches the currency it was
 traded in; otherwise `priceError` says why.
 
+## Daily valuations
+
+A scheduled in-process job materialises each user's holdings, valued at each
+trading day's market close, for value-over-time charts. It backfills missed
+dates, re-values from the date of backdated trades, and flags non-trading,
+pending and missing prices explicitly. Read it with `GET /api/valuations` or
+the `get_valuation_history` tool. Run one pass by hand with
+`npm -w @money/backend run valuations:run`. Scheduling, price statuses,
+recovery and provider limitations are in
+[docs/valuations.md](docs/valuations.md).
+
 ## Tests
 
 ```bash
@@ -120,11 +135,13 @@ npm -w @money/backend test
 - Unit tests: three-of-four trade math, two-of-three dividends and FX, transfer
   amounts, ledger
   replay (cash and FX flows, FIFO lots, cost bases, dividends, violations, the
-  12-month test), Yahoo adapter, user identity mapping.
+  12-month test), Yahoo adapter (quotes and daily closes), market time zones,
+  historical positions and close selection, user identity mapping.
 - End-to-end tests over HTTP on both interfaces: token validation (missing,
   foreign key, wrong issuer, expired, wrong audience, cross-resource), the full
   investment flow, edit and delete semantics, transfers (atomicity, FX, edits,
-  isolation), concurrency tests, and
+  isolation), daily valuations (historical quantities, idempotency, holidays,
+  pending and missing prices, backdated edits, isolation), concurrency tests, and
   **cross-user isolation on every REST route and MCP tool**.
 
 Each e2e test file starts its own in-memory PGlite in a child process, reached

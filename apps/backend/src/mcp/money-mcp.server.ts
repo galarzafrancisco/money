@@ -25,6 +25,8 @@ import { TransactionsService } from '../transactions/transactions.service';
 import { createTransferShape, listTransfersShape, updateTransferShape } from '../transfers/transfers.schemas';
 import { TransfersService } from '../transfers/transfers.service';
 import type { CurrentUser } from '../users/users.service';
+import { recomputeSchema, valuationHistorySchema } from '../valuations/valuations.schemas';
+import { ValuationsService } from '../valuations/valuations.service';
 
 const PERSONAL_TRACKING =
   'Money only records activity that happened elsewhere and updates its own tracking balances. It never moves money, contacts a bank or broker, or places trades.';
@@ -50,6 +52,7 @@ export class MoneyMcpServerFactory {
     private readonly categories: CategoriesService,
     private readonly reports: ReportsService,
     private readonly transfers: TransfersService,
+    private readonly valuations: ValuationsService,
   ) {}
 
   build(user: CurrentUser): McpServer {
@@ -266,6 +269,27 @@ export class MoneyMcpServerFactory {
       read,
       { symbol: tickerSymbol },
       ({ symbol }) => this.prices.getQuote(symbol),
+    );
+    tool(
+      'get_valuation_history',
+      'Daily valuations of your holdings over a date range, for value-over-time charts: per date, what was held at the end of that day valued at that day\'s market close, with totals per currency. include: "holdings" adds each holding with quantity, close used (price.status, tradingDate, source, isMock) and lots. Check price.status and "complete": non-trading days use the last close, pending or missing prices are flagged, not hidden.',
+      read,
+      valuationHistorySchema.shape,
+      (args) => this.valuations.history(user, args),
+    );
+    tool(
+      'get_valuation_status',
+      'How far daily valuations are materialised (earliest/latest date, partial days, pending recomputation) and when the job last ran',
+      read,
+      {},
+      () => this.valuations.status(user),
+    );
+    tool(
+      'request_valuation_recompute',
+      'Ask the daily valuation job to re-value your holdings from a date on its next run. Backdated trades already trigger this automatically; use it to recover days whose prices were missing.',
+      write,
+      recomputeSchema.shape,
+      (args) => this.valuations.requestRecompute(user, args),
     );
 
     return server;

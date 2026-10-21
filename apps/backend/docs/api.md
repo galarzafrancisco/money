@@ -39,6 +39,9 @@ them, but strings are preferred.
 | DELETE | `/api/accounts/:id/holdings/:symbol/category` | none | `{ accountId, symbol, categoryId: null }` |
 | GET | `/api/reports/accounts` | `?valuation=market\|cost&baseCurrency=&fxRates=USD:1.5,…&rootAccountId=` | Account tree with `own` and `rolledUp` totals |
 | GET | `/api/reports/categories` | same | Totals per effective category (a partition of the total) |
+| GET | `/api/valuations` | `?fromDate=&toDate=&accountId=&includeSubaccounts=&symbol=&include=totals\|holdings&baseCurrency=&fxRates=` | Daily closing-price valuations of holdings (see [valuations.md](valuations.md)) |
+| GET | `/api/valuations/status` | none | Materialised range, partial days, pending recompute, last job run |
+| POST | `/api/valuations/recompute` | `{ fromDate, accountId? }` | 202 `{ requested, fromDate, accounts }`; re-valued on the next job run |
 | GET | `/api/market-prices/:symbol` | none | `{ symbol, price, currency, asOf, source, isMock }` |
 | GET | `/.well-known/oauth-protected-resource/{api,mcp}` | none (no auth) | RFC 9728 metadata |
 
@@ -84,6 +87,7 @@ none of them takes a user argument.
 | `list_categories`, `get_category`, `create_category`, `update_category`, `delete_category` | The category routes |
 | `set_holding_category` (`categoryId: null` clears), `list_holding_categories` | The holding-category routes |
 | `get_accounts_report`, `get_categories_report` | `GET /api/reports/accounts`, `/categories` (`fxRates` as an object) |
+| `get_valuation_history`, `get_valuation_status`, `request_valuation_recompute` | The valuation routes (`fxRates` as an object) |
 | `get_market_price` | `GET /api/market-prices/:symbol` |
 
 Results are JSON text content. Domain errors come back as `isError: true` with

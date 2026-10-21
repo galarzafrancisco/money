@@ -6,6 +6,7 @@ import { UserEntity } from '../users/user.entity';
 import { InitialSchema1761000000000 } from './migrations/1761000000000-InitialSchema';
 import { SubaccountsAndCategories1761100000000 } from './migrations/1761100000000-SubaccountsAndCategories';
 import { Transfers1761200000000 } from './migrations/1761200000000-Transfers';
+import { DailyValuations1761300000000 } from './migrations/1761300000000-DailyValuations';
 
 export const ENTITIES = [UserEntity, AccountEntity, TransactionEntity, CategoryEntity, HoldingCategoryEntity, TransferEntity];
-export const MIGRATIONS = [InitialSchema1761000000000, SubaccountsAndCategories1761100000000, Transfers1761200000000];
+export const MIGRATIONS = [InitialSchema1761000000000, SubaccountsAndCategories1761100000000, Transfers1761200000000, DailyValuations1761300000000];
