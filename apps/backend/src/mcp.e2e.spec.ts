@@ -55,6 +55,7 @@ describe('MCP interface', () => {
         'get_portfolio', 'get_market_price',
         'list_categories', 'get_category', 'create_category', 'update_category', 'delete_category',
         'set_holding_category', 'list_holding_categories', 'get_accounts_report', 'get_categories_report',
+        'list_lots', 'get_sale_allocations',
       ]),
     );
   });

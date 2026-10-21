@@ -16,6 +16,7 @@ calls.
 | [docs/api.md](docs/api.md) | REST endpoints, MCP tools, errors |
 | [docs/categories.md](docs/categories.md) | Subaccounts (buckets), user-defined categories, roll-up and category reports, FX policy |
 | [docs/transfers.md](docs/transfers.md) | Transfers between accounts: linked legs, FX, atomicity, edits, deletion and reversal |
+| [docs/lot-selection.md](docs/lot-selection.md) | Purchase lots, specific identification and FIFO for sales, split allocations, precision, edit rules, UI contract |
 | [docs/accounting-assumptions.md](docs/accounting-assumptions.md) | Australian cost base, lots, FX and dividend assumptions, plus open questions |
 
 ## Architecture
@@ -134,14 +135,17 @@ npm -w @money/backend test
 
 - Unit tests: three-of-four trade math, two-of-three dividends and FX, transfer
   amounts, ledger
-  replay (cash and FX flows, FIFO lots, cost bases, dividends, violations, the
+  replay (cash and FX flows, FIFO and specifically identified lots, split
+  allocations and their reconciliation, cost bases, dividends, violations, the
   12-month test), Yahoo adapter (quotes and daily closes), market time zones,
   historical positions and close selection, user identity mapping.
 - End-to-end tests over HTTP on both interfaces: token validation (missing,
   foreign key, wrong issuer, expired, wrong audience, cross-resource), the full
   investment flow, edit and delete semantics, transfers (atomicity, FX, edits,
   isolation), daily valuations (historical quantities, idempotency, holidays,
-  pending and missing prices, backdated edits, isolation), concurrency tests, and
+  pending and missing prices, backdated edits, isolation), lot selection
+  (the 15/25 split, edits, deletes, backdating, FIFO compatibility, valuation
+  history, isolation), concurrency tests, and
   **cross-user isolation on every REST route and MCP tool**.
 
 Each e2e test file starts its own in-memory PGlite in a child process, reached

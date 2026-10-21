@@ -62,7 +62,7 @@ can filter on the user directly. `sequence` is the per-account insertion order
 | `WITHDRAWAL` | same as `DEPOSIT` | `−amount` in `currency` |
 | `FX_CONVERSION` | `from_currency`, `from_amount`, `to_currency`, `to_amount`, `fx_rate`, `fees` (in from currency) | `−(from_amount + fees)` from, `+to_amount` to |
 | `BUY` | `symbol`, `currency`, `quantity`, `unit_price`, `fees`, `total` (= q × p + fees) | `−total` |
-| `SELL` | same as `BUY`, but `total` = q × p − fees | `+total` |
+| `SELL` | same as `BUY`, but `total` = q × p − fees; `lot_selection` (`FIFO` or `SPECIFIC`) | `+total` |
 | `DIVIDEND` | `symbol`, `currency`, `gross_amount`, `withholding_tax`, `net_amount`, `franking_credits` | `+net_amount` |
 | `TRANSFER_OUT` | `currency`, `amount`, `fees`, `transfer_id`, `counterparty_account_id` | `−(amount + fees)` |
 | `TRANSFER_IN` | `currency`, `amount`, `transfer_id`, `counterparty_account_id` | `+amount` |
@@ -85,6 +85,18 @@ informational and don't change any balance.
 
 It is `null` when every field was supplied. CHECK constraints require the
 columns each type needs.
+
+### Sale lot allocations
+
+`sale_lot_allocations` stores, for each `SPECIFIC` sale, the shares it took
+from each lot: `(sale_transaction_id, lot_transaction_id, position,
+quantity > 0)`. A lot is its BUY transaction. Composite FKs to
+`transactions (id, user_id, account_id)` keep the sale and the lot with the
+same user and account. The sale FK cascades. The lot FK is deferred to commit,
+so a referenced purchase can't be deleted on its own, while account and user
+deletion still cascade. `lot_selection` is set on SELLs only, and the
+migration backfilled `FIFO` on existing ones. See
+[lot-selection.md](lot-selection.md).
 
 ### Daily valuations
 
@@ -109,6 +121,7 @@ During the replay, the first transaction that does any of the following raises a
 
 - makes a currency's cash balance negative (no margin or overdraft);
 - sells more shares than are held at that date;
+- has lot allocations that don't fit the lots at that point (see [lot-selection.md](lot-selection.md));
 - trades a ticker in a second currency within the same account.
 
 Dividends don't require the ticker to be held, because they can arrive after a

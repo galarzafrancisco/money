@@ -1,6 +1,6 @@
 import { MoneyDecimal, ZERO, dec, fmt, fmtOrNull, parseDecimalOrNull } from '../common/decimal';
 import { ValidationError } from '../common/errors';
-import { isTransferLeg, type LedgerEntry, type TransactionType } from '../ledger/ledger.types';
+import { isTransferLeg, type LedgerEntry, type LotAllocation, type TransactionType } from '../ledger/ledger.types';
 import { resolveDividend, resolveFx, resolveTrade } from '../ledger/trade-math';
 import type { TransactionEntity } from './transaction.entity';
 
@@ -182,6 +182,7 @@ export function toLedgerEntry(t: TransactionEntity): LedgerEntry {
         unitPrice: dec(t.unitPrice!),
         fees: dec(t.fees!),
         total: dec(t.total!),
+        ...(t.type === 'SELL' && t.lotSelection === 'SPECIFIC' ? { allocations: storedAllocations(t) } : {}),
       };
     case 'DIVIDEND':
       return {
@@ -198,6 +199,14 @@ export function toLedgerEntry(t: TransactionEntity): LedgerEntry {
     case 'TRANSFER_IN':
       return { ...base, type: t.type, currency: t.currency!, amount: dec(t.amount!), fees: dec(t.fees ?? '0') };
   }
+}
+
+/** A SPECIFIC sale's allocations; refuses to guess if they were not loaded */
+function storedAllocations(t: TransactionEntity): LotAllocation[] {
+  if (!t.lotAllocations) {
+    throw new Error(`Sale ${t.id} uses specific lot selection but its allocations were not loaded`);
+  }
+  return [...t.lotAllocations].sort((a, b) => a.position - b.position).map((a) => ({ lotId: a.lotTransactionId, quantity: dec(a.quantity) }));
 }
 
 export type TransactionView = {
@@ -257,6 +266,15 @@ export function toTransactionView(t: TransactionEntity): TransactionView {
         fees: s(t.fees),
         total: s(t.total),
       });
+      if (t.type === 'SELL') {
+        Object.assign(view, {
+          lotSelection: t.lotSelection ?? 'FIFO',
+          allocations:
+            t.lotSelection === 'SPECIFIC'
+              ? storedAllocations(t).map((a) => ({ lotId: a.lotId, quantity: fmt(a.quantity) }))
+              : null,
+        });
+      }
       break;
     case 'DIVIDEND':
       Object.assign(view, {

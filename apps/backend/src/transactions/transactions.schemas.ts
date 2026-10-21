@@ -50,6 +50,43 @@ export const tradeShape = {
   fees: decimalString('Brokerage and other fees').optional(),
   total: decimalString('Buy: cash paid including fees. Sell: cash received after fees.').optional(),
 };
+/**
+ * Specific identification for a sale: which purchase lots the shares came
+ * from. lotId is the ID of the BUY transaction (see list_lots). Quantities
+ * must be positive and add up to the sale's quantity; each lot at most once.
+ */
+export const lotAllocationsSchema = z
+  .array(
+    z
+      .object({
+        lotId: z.string().uuid().describe('Lot ID: the ID of the BUY transaction (from list_lots / GET /api/accounts/:id/lots)'),
+        quantity: decimalString('Shares taken from this lot; fractions allowed'),
+      })
+      .strict(),
+  )
+  .min(1, { message: 'name at least one lot, or leave allocations out for FIFO' })
+  .max(1000)
+  .superRefine((allocations, ctx) => {
+    const seen = new Set<string>();
+    allocations.forEach((allocation, index) => {
+      if (!/[1-9]/.test(allocation.quantity) || allocation.quantity.startsWith('-')) {
+        ctx.addIssue({ code: 'custom', message: 'quantity must be greater than zero', path: [index, 'quantity'] });
+      }
+      const key = allocation.lotId.toLowerCase();
+      if (seen.has(key)) ctx.addIssue({ code: 'custom', message: `lot ${allocation.lotId} is allocated more than once`, path: [index, 'lotId'] });
+      seen.add(key);
+    });
+  })
+  .describe(
+    'Specific identification: the purchase lots this sale came from and how many shares from each, e.g. [{"lotId":"<buy id>","quantity":"15"},{"lotId":"<other buy id>","quantity":"25"}]. Must add up to the sale quantity. Leave out to match lots FIFO.',
+  );
+export type LotAllocationsInput = z.infer<typeof lotAllocationsSchema>;
+
+export const sellShape = {
+  ...tradeShape,
+  allocations: lotAllocationsSchema.optional(),
+};
+
 export const dividendShape = {
   ...common,
   symbol: tickerSymbol,
@@ -66,6 +103,7 @@ export const fxSchema = z
   .object(fxShape)
   .refine((v) => v.fromCurrency !== v.toCurrency, { message: 'fromCurrency and toCurrency must differ', path: ['toCurrency'] });
 export const tradeSchema = z.object(tradeShape);
+export const sellSchema = z.object(sellShape);
 export const dividendSchema = z.object(dividendShape);
 
 export const recordTransactionSchema = z.discriminatedUnion('type', [
@@ -73,7 +111,7 @@ export const recordTransactionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('WITHDRAWAL'), ...withdrawalShape }).refine(bothOrNeither, bothOrNeitherMessage),
   z.object({ type: z.literal('FX_CONVERSION'), ...fxShape }),
   z.object({ type: z.literal('BUY'), ...tradeShape }),
-  z.object({ type: z.literal('SELL'), ...tradeShape }),
+  z.object({ type: z.literal('SELL'), ...sellShape }),
   z.object({ type: z.literal('DIVIDEND'), ...dividendShape }),
 ]);
 export type RecordTransactionInput = z.input<typeof recordTransactionSchema>;
@@ -106,6 +144,10 @@ export const updateTransactionSchema = z
     withholdingTax: nullableDecimal('Dividend withholding; null recalculates it'),
     netAmount: nullableDecimal('Dividend net; null recalculates it'),
     frankingCredits: decimalString('Franking credits').optional(),
+    allocations: lotAllocationsSchema
+      .nullable()
+      .optional()
+      .describe('SELL only. New lot allocations (replacing the old ones); null switches the sale to FIFO. Left out, they are kept and must still add up to the quantity.'),
   })
   .strict()
   .refine((value) => Object.values(value).some((v) => v !== undefined), { message: 'Provide at least one field to change' });
@@ -124,6 +166,6 @@ export const UPDATABLE_FIELDS: Record<string, readonly string[]> = {
   WITHDRAWAL: ['date', 'description', 'currency', 'amount', 'externalCurrency', 'externalAmount'],
   FX_CONVERSION: ['date', 'description', 'fromCurrency', 'toCurrency', 'fromAmount', 'toAmount', 'rate', 'fees'],
   BUY: ['date', 'description', 'symbol', 'currency', 'quantity', 'unitPrice', 'fees', 'total'],
-  SELL: ['date', 'description', 'symbol', 'currency', 'quantity', 'unitPrice', 'fees', 'total'],
+  SELL: ['date', 'description', 'symbol', 'currency', 'quantity', 'unitPrice', 'fees', 'total', 'allocations'],
   DIVIDEND: ['date', 'description', 'symbol', 'currency', 'grossAmount', 'withholdingTax', 'netAmount', 'frankingCredits'],
 };

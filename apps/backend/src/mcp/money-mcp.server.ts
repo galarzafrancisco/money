@@ -8,6 +8,8 @@ import { createCategorySchema, holdingCategorySchema, updateCategorySchema } fro
 import { CategoriesService } from '../categories/categories.service';
 import { DomainError } from '../common/errors';
 import { tickerSymbol } from '../common/validation';
+import { listLotsSchema } from '../lots/lots.schemas';
+import { LotsService } from '../lots/lots.service';
 import { MarketPricesService } from '../market-prices/market-prices.service';
 import { PortfolioService } from '../portfolio/portfolio.service';
 import { reportOptionsSchema } from '../reports/reports.schemas';
@@ -17,6 +19,7 @@ import {
   dividendShape,
   fxShape,
   listTransactionsSchema,
+  sellShape,
   tradeShape,
   updateTransactionSchema,
   withdrawalShape,
@@ -53,6 +56,7 @@ export class MoneyMcpServerFactory {
     private readonly reports: ReportsService,
     private readonly transfers: TransfersService,
     private readonly valuations: ValuationsService,
+    private readonly lots: LotsService,
   ) {}
 
   build(user: CurrentUser): McpServer {
@@ -197,9 +201,9 @@ export class MoneyMcpServerFactory {
     );
     tool(
       'record_sell',
-      'Record a share sale. Give any three of quantity, unitPrice, fees and total (total = quantity × unitPrice − fees, the cash received); the fourth is calculated. Parcels are matched FIFO. Fails if fewer shares were held on that date.',
+      'Record a share sale. Give any three of quantity, unitPrice, fees and total (total = quantity × unitPrice − fees, the cash received); the fourth is calculated. To say which purchases the shares came from (specific identification), give allocations: [{lotId, quantity}, …] using lot IDs from list_lots, adding up to quantity; one sale may take part of several lots. Without allocations, lots are matched FIFO. Fails if the shares (or a named lot) were not held on that date.',
       write,
-      { accountId, ...tradeShape },
+      { accountId, ...sellShape },
       ({ accountId, ...input }) => this.transactions.recordOfType(user, accountId, 'SELL', input),
     );
     tool(
@@ -211,17 +215,32 @@ export class MoneyMcpServerFactory {
     );
     tool(
       'update_transaction',
-      'Edit a transaction. Transfer legs (TRANSFER_OUT/TRANSFER_IN) are refused; use update_transfer. Only fields valid for its type are accepted. Fields left out keep their values; set a calculable field to null to have it recalculated. The edit is rejected if the account\'s ledger would become inconsistent.',
+      'Edit a transaction. Transfer legs (TRANSFER_OUT/TRANSFER_IN) are refused; use update_transfer. Only fields valid for its type are accepted. Fields left out keep their values; set a calculable field to null to have it recalculated. On a SELL, allocations replaces its lot allocations and null switches it to FIFO. The edit is rejected if the account\'s ledger would become inconsistent (e.g. a purchase edited below what sales allocate from it).',
       write,
       { transactionId, ...updateTransactionSchema.shape },
       ({ transactionId, ...changes }) => this.transactions.update(user, transactionId, changes),
     );
     tool(
       'delete_transaction',
-      'Delete a transaction. Transfer legs are refused; use delete_transfer. Rejected if later transactions depend on it (e.g. a deposit that funded a buy).',
+      'Delete a transaction. Transfer legs are refused; use delete_transfer. Rejected if later transactions depend on it (e.g. a deposit that funded a buy, or a purchase that sales allocate shares from).',
       destructive,
       { transactionId },
       ({ transactionId }) => this.transactions.delete(user, transactionId),
+    );
+
+    tool(
+      'list_lots',
+      'List an account\'s purchase lots (parcels): lotId (the BUY\'s transaction ID), purchase date, ticker, remaining quantity and cost base, holding period and the sales that took from each. asOf gives the lots a sale on that date can allocate from; excludeTransactionId leaves out a sale being edited.',
+      read,
+      { accountId, ...listLotsSchema.shape },
+      ({ accountId, ...query }) => this.lots.listLots(user, accountId, query),
+    );
+    tool(
+      'get_sale_allocations',
+      'How one sale was split across purchase lots: per lot the quantity, cost base, gross and net proceeds, fees, gain and holding period (heldOverTwelveMonths), plus totals that add up to the sale. Works for FIFO and specific-identification sales.',
+      read,
+      { transactionId },
+      ({ transactionId }) => this.lots.saleAllocations(user, transactionId),
     );
 
     tool(
