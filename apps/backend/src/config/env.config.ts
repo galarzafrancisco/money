@@ -26,6 +26,23 @@ export type AppConfig = {
     provider: MarketPriceProviderName;
     cacheSeconds: number;
   };
+  /** The daily closing-price valuation job (see docs/valuations.md) */
+  valuations: {
+    /** Run the job on a timer in this process */
+    jobEnabled: boolean;
+    /** How often the job wakes up to look for due work */
+    intervalMinutes: number;
+    /** Valuation date D is due once D+1 at this UTC hour has passed (after the ASX and US closes of D) */
+    settleHourUtc: number;
+    /** How far back history is materialised */
+    backfillDays: number;
+    /** Days with pending or missing prices are re-tried for this many days */
+    recheckDays: number;
+    /** The oldest previous close that may stand in on a non-trading or pending day */
+    maxCarryDays: number;
+    /** Upper bound on dates computed per user per run; the rest wait for the next run */
+    maxDaysPerRun: number;
+  };
 };
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
@@ -73,7 +90,26 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       provider,
       cacheSeconds: parseInt(env.MARKET_PRICE_CACHE_SECONDS ?? '300', 10),
     },
+    valuations: {
+      jobEnabled: (env.VALUATION_JOB_ENABLED ?? (nodeEnv === 'test' ? 'false' : 'true')) === 'true',
+      intervalMinutes: intEnv(env, 'VALUATION_JOB_INTERVAL_MINUTES', 60, 1, 24 * 60),
+      settleHourUtc: intEnv(env, 'VALUATION_SETTLE_HOUR_UTC', 6, 0, 23),
+      backfillDays: intEnv(env, 'VALUATION_BACKFILL_DAYS', 366, 1, 3660),
+      recheckDays: intEnv(env, 'VALUATION_RECHECK_DAYS', 7, 0, 60),
+      maxCarryDays: intEnv(env, 'VALUATION_MAX_CARRY_DAYS', 7, 1, 31),
+      maxDaysPerRun: intEnv(env, 'VALUATION_MAX_DAYS_PER_RUN', 400, 1, 5000),
+    },
   };
+}
+
+function intEnv(env: NodeJS.ProcessEnv, name: string, fallback: number, min: number, max: number): number {
+  const raw = env[name];
+  if (raw === undefined || raw === '') return fallback;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < min || value > max) {
+    throw new Error(`${name} must be an integer from ${min} to ${max}, got ${raw}`);
+  }
+  return value;
 }
 
 function parseNodeEnv(value: string | undefined): AppConfig['nodeEnv'] {

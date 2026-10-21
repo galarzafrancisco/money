@@ -7,7 +7,7 @@ import { currencyCode } from '../common/validation';
  * Each rate is how many units of the base currency one unit of that currency
  * is worth.
  */
-const fxRates = z
+export const fxRates = z
   .union([z.string(), z.record(z.string(), z.union([z.string(), z.number()]))])
   .transform((value, ctx) => {
     const pairs: [string, string][] =

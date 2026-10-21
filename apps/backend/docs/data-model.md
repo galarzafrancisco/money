@@ -86,6 +86,16 @@ informational and don't change any balance.
 It is `null` when every field was supplied. CHECK constraints require the
 columns each type needs.
 
+### Daily valuations
+
+`valuation_days`, `valuation_holdings`, `market_price_closes`,
+`valuation_recompute_requests` and `valuation_job_state` hold the daily
+closing-price valuations: materialised snapshots of derived state, written
+only by the valuation job and always recomputable from the ledger plus closes.
+Holding rows have composite FKs to `accounts(id, user_id)` (cascade) and to
+their `valuation_days` row. A trigger on `transactions` records backdated
+BUY/SELL changes for recomputation. See [valuations.md](valuations.md).
+
 ## Derived state: replayed, never stored
 
 Cash per currency, lots (parcels), holdings, cost bases, realized gains and
@@ -159,7 +169,11 @@ Postgres takes the ON DELETE SET NULL / CASCADE actions of a category delete
 on the account rows. Without step 3 up front, a delete holding the category
 would wait for an account that an assignment holds while that assignment waits
 for the category: a deadlock. `src/category-locking.e2e.spec.ts` forces that
-interleaving against real Postgres. New writers must keep this order.
+interleaving against real Postgres. New writers must keep this order. The valuation job takes no row locks on
+accounts, users or categories: it reads committed ledgers and replaces its own
+snapshot rows, and relies on recompute requests (written by the
+`transactions` trigger inside the writer's transaction) to catch changes that
+race a run.
 Transfers do: they lock only their two accounts, in id order, and
 `src/transfers.e2e.spec.ts` runs opposite-direction transfers concurrently
 against Postgres to check they don't deadlock.
