@@ -1,0 +1,11 @@
+.heading--lg { font-size: var(--fs-6); }
+.heading--md { font-size: var(--fs-4); }
+.heading--sm { font-size: var(--fs-3); }
+.text--muted { color: var(--text-muted); }
+.text--danger { color: var(--danger); }
+.text--success { color: var(--success); }
+.text--warning { color: var(--warning); }
+.text--sm { font-size: var(--fs-2); }
+.text--xs { font-size: var(--fs-1); }
+.text--mono { font-family: var(--font-mono); }
+.text--strong { font-weight: var(--fw-bold); }

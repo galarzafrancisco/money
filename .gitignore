@@ -157,3 +157,7 @@ vite.config.ts.timestamp-*
 
 # Money backend: local embedded PGlite data
 .data/
+
+# Generated API client and OpenAPI spec (build outputs)
+apps/backend/openapi.json
+packages/client/src/generated/

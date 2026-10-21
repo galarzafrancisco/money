@@ -96,6 +96,10 @@ jobs:
         # memory bounded (see docs/ci.md)
         run: npm -w @money/backend test -- --maxWorkers=2 --ci
 
+      - name: Test web app
+        # Vitest + Testing Library against a stand-in for the generated client
+        run: npx nx run @money/web:test
+
   image:
     # Runs untrusted PR code, so it gets a read-only token. Publishing is the
     # separate main-only `publish` job, the only one with packages: write.
@@ -162,6 +166,8 @@ jobs:
           mcp=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:4180/mcp)
           echo "/api -> $api, /mcp -> $mcp"
           if [ "$api" != 401 ] || [ "$mcp" != 401 ]; then docker logs money-smoke; exit 1; fi
+          # The web app is served at / (and for client-side routes) from the same origin
+          curl -sf -H 'Accept: text/html' http://127.0.0.1:4180/accounts | grep -q '<div id="root">' || { echo "web app not served"; exit 1; }
 
       - name: Smoke test image (temporary in-memory mode, as deployed)
         # Mirrors install/manifests: DATABASE_MODE=memory, read-only root

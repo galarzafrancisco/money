@@ -38,11 +38,15 @@ services sit behind a REST API (`/api`) and an MCP server (`/mcp`).
 ```bash
 npm run build:dev   # cloned -> ready: npm ci, build every project, verify @taico/auth imports
 npm run dev         # build packages, then run the backend in watch mode (http://localhost:4180)
+npm run dev:web     # Vite dev server for the web app (http://localhost:5173), proxying /api and /auth to 4180
 npm test            # every project's tests
 npm run typecheck   # every project
 ```
 
-Builds are orchestrated by **Nx** over npm workspaces. Without `DATABASE_URL`,
+Builds are orchestrated by **Nx** over npm workspaces. The order is:
+`@taico/auth` → backend (which also writes `apps/backend/openapi.json`) →
+`@money/client` (generated from the spec) → `@money/web`. After `npm run build`,
+the backend serves the web app at `/`. Without `DATABASE_URL`,
 the backend uses embedded PGlite in `apps/backend/.data/pglite`. If port 4180
 is in use, set `PORT`. Production needs `DATABASE_URL`, or an explicit
 `DATABASE_MODE=memory` (temporary and non-durable: data is lost on every
@@ -54,7 +58,7 @@ restart). See [docs/deployment.md](docs/deployment.md).
 2. `npm test`: tests pass. Concurrency tests need `TEST_POSTGRES_URL` and are
    skipped without it, so say so if you didn't run them.
 3. `npm run dev`: the app starts and `/health` answers. Unauthenticated `/api`
-   and `/mcp` answer `401`.
+   and `/mcp` answer `401`. After a build, `/` serves the web app.
 
 CI (`.github/workflows/ci.yml`) runs the suite on both Postgres and PGlite,
 smoke-tests the container image, renders `install/manifests`, and on `main`
@@ -66,9 +70,11 @@ See [docs/ci.md](docs/ci.md) and [docs/deployment.md](docs/deployment.md).
 
 ```
 apps/
-└── backend/   @money/backend: NestJS 11, TypeORM, Postgres/PGlite, MCP SDK, zod, Jest
+├── backend/   @money/backend: NestJS 11, TypeORM, Postgres/PGlite, MCP SDK, zod, Jest; writes openapi.json
+└── web/       @money/web: React 19 + Vite web app (accounts, holdings, recording activity), Vitest
 packages/
-└── auth/      @taico/auth, temporarily vendored from ai-monorepo (do not edit; see VENDORED.md)
+├── auth/      @taico/auth, temporarily vendored from ai-monorepo (do not edit; see VENDORED.md)
+└── client/    @money/client: REST client generated from openapi.json by @taico/openapi-sdkgen (build output)
 install/
 └── manifests/ Kustomize base + overlays/main, copied to spark-ops by CI (docs/deployment.md)
 docs/          repository-wide guides (index: docs/README.md)
@@ -95,7 +101,8 @@ Frontends and other TypeScript consumers call the backend **only through
 clients generated from the backend's OpenAPI spec with
 [`@taico/openapi-sdkgen`](https://www.npmjs.com/package/@taico/openapi-sdkgen)**
 (Taico's OpenAPI SDK generator). Hand-written `fetch`/`axios` calls are not
-allowed in feature code. See [docs/architecture/api-clients.md](docs/architecture/api-clients.md).
+allowed in feature code. Every `/api` route carries `@ApiRoute` metadata and a
+response schema, so it appears in the spec. See [docs/architecture/api-clients.md](docs/architecture/api-clients.md).
 
 ## Guides
 

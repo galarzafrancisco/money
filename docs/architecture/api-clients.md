@@ -75,16 +75,47 @@ Resources are grouped by OpenAPI tags. Tag every controller (`accounts`,
   ai-monorepo.
 - MCP isn't covered. MCP clients use the MCP tool schemas directly.
 
-## Current status
+## How Money implements it
 
-Money **doesn't emit an OpenAPI spec yet**, and there is no client package.
-Before the UI needs either, someone has to:
+- **Route metadata.** Every `/api` controller method carries
+  `@ApiRoute({ tag, operationId, summary, query?, body?, response })`
+  (`apps/backend/src/openapi/api-route.decorator.ts`). Path, method and status
+  come from Nest's own decorators.
+- **Schemas.** Request bodies and query strings are the services' own zod input
+  schemas, registered under a component name with `apiSchema('Name', schema)`.
+  Responses are zod schemas in `<domain>/<domain>.responses.ts`, next to the
+  view types the services return.
+- **Spec.** `npm -w @money/backend run build` runs `nest build`, then
+  `node dist/openapi/generate-spec.js`, which writes `apps/backend/openapi.json`
+  (gitignored). It needs no database or configuration.
+  `src/openapi/normalize.ts` turns zod's JSON Schema output into the generator's
+  subset:
+  - decimals (`string | number` on input) become `string`;
+  - `X | null` becomes `nullable`;
+  - the discriminated `RecordTransactionRequest` is flattened into one object
+    with a `type` enum. The service still validates the exact variant.
 
-1. Add spec generation to `apps/backend` (from the zod schemas plus route
-   metadata) and write `openapi.json` during the build.
-2. Create `packages/client` with `@taico/openapi-sdkgen` as a dev dependency and
-   a build step that generates the client from that spec.
-3. Wire both into Nx so `npm run build` produces them in order.
+  Anything that it can't express fails the build.
+- **Client.** `packages/client` (`@money/client`) runs `openapi-sdkgen` into
+  `src/generated` (gitignored), then compiles. It also exports `moneyErrorOf()`,
+  which reads the `{ error: { code, message, details } }` envelope from an
+  `ApiError`. Nx builds the backend first (`implicitDependencies`).
+- **Web app.** `apps/web` creates one client per session in `src/app/api.tsx`
+  with `credentials: 'same-origin'` and the session's `X-CSRF-Token` header.
+  Feature data modules (`features/*/data.ts`) are its only callers. `/auth/*` is
+  called from `src/app/session.tsx`, as web-auth.md prescribes.
+- **Tests.** `apps/backend/src/openapi.e2e.spec.ts` fails when:
+  - a route lacks metadata;
+  - the spec contains `allOf`/`anyOf`/`oneOf`;
+  - a real response doesn't match its response schema, field for field. Every
+    operation is called against the running app.
 
-Until then, UI work must not ship a hand-written client as a stopgap without a
-tracked task to replace it.
+### Known limits
+
+- The generator interpolates path parameters without URL-encoding them. Ticker
+  symbols are URL-safe in practice (`VAS.AX`), but a symbol with `/` or `#`
+  would break. Fix upstream in `@taico/openapi-sdkgen`.
+- `ApiError.message` is generic ("HTTP 422: …") because the generator looks for
+  a top-level `message`. Use `moneyErrorOf(error).message`.
+- Query booleans are typed as `'true' | 'false'` strings, which is their wire
+  form.

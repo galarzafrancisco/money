@@ -87,6 +87,8 @@ export type TestAppOptions = {
   env?: Record<string, string>;
   /** Stands in for Taico's authorization server in browser sign-in tests */
   webAuthFetch?: typeof fetch;
+  /** Adjusts the app before init, as main.ts does (e.g. serving the web app) */
+  configure?: (app: INestApplication) => void;
 };
 
 /** Boots the real app on its own database, trusting a key pair generated for the test */
@@ -116,6 +118,7 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
     imports: [AppModule.forRoot({ config, jwks: staticJwks([jwk]), priceProvider: prices, webAuthFetch: options.webAuthFetch })],
   }).compile();
   const app = moduleRef.createNestApplication({ logger: false });
+  options.configure?.(app);
   await app.init();
 
   const sign = async (key: CryptoKey, options: TokenOptions) =>

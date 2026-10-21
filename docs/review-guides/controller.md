@@ -7,4 +7,4 @@
 - Errors are thrown by services as `DomainError`s and rendered by `DomainErrorFilter`; the controller does not throw `HttpException`s.
 - Status codes are explicit where Nest's default is wrong (e.g. `@HttpCode(200)` on DELETE that returns a body).
 - Every route has a matching MCP tool, or the PR states why not.
-- Every route is documented in `apps/backend/docs/api.md` and is described in the OpenAPI spec once spec generation exists (see `docs/architecture/api-clients.md`).
+- Every route is documented in `apps/backend/docs/api.md` and carries `@ApiRoute` with a tag, a unique `operationId`, its query/body schemas (the service's zod schemas, registered with `apiSchema`) and a response schema from `<domain>.responses.ts` (see `docs/architecture/api-clients.md`). `openapi.e2e.spec.ts` calls the new route and checks its response.
