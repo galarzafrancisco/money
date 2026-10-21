@@ -150,3 +150,7 @@ vite.config.ts.timestamp-*
 
 # macOS
 .DS_Store
+
+# Nx
+.nx/cache
+.nx/workspace-data

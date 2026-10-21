@@ -1,0 +1,33 @@
+{
+  "name": "money",
+  "private": true,
+  "version": "0.0.1",
+  "description": "Money: personal investment tracking (MCP-first, federated auth via Taico).",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "nx run-many -t build",
+    "build:packages": "nx run-many -t build -p @taico/auth",
+    "build:dev": "npm ci && npm run build && npm run verify:auth",
+    "dev": "npm run build:packages && tsc -p packages/auth/tsconfig.build.json --watch --preserveWatchOutput",
+    "test": "nx run-many -t test",
+    "typecheck": "nx run-many -t typecheck",
+    "verify:auth": "node scripts/verify-auth-imports.mjs",
+    "nx": "nx",
+    "graph": "nx graph"
+  },
+  "devDependencies": {
+    "nx": "^21.0.0",
+    "typescript": "^5.7.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/galarzafrancisco/money.git"
+  },
+  "author": "Francisco Galarza"
+}
