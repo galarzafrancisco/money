@@ -39,12 +39,15 @@ unbounded parallelism has run out of memory on large machines.
 ### `image`
 
 This job builds the [`Dockerfile`](../Dockerfile), a two-stage `node:24-alpine`
-build that runs as the `node` user and listens on `PORT=4180`. Then it
+build that runs as uid/gid `1000:1000` (the base image's `node` user, given by
+number) and listens on `PORT=4180`. It first checks that the image `USER` is
+numeric and non-zero and still maps to `node`: the kubelet refuses
+`runAsNonRoot` with a named user, and Docker doesn't enforce that check. Then it
 smoke-tests the image: it starts the container with `NODE_ENV=production` against a
 Postgres service and checks that migrations run, `/health` answers, and
 unauthenticated `/api` and `/mcp` return `401`. Production requires
 `SESSION_ENCRYPTION_KEY`, so each run generates a throwaway key. A second smoke test runs the
-image the way it is deployed: `DATABASE_MODE=memory`, a read-only root
+image the way it is deployed: `DATABASE_MODE=memory`, uid/gid `1000:1000`, a read-only root
 filesystem, a tmpfs `/tmp` and no capabilities. It runs the same checks, and
 also checks that production refuses to start with no database configured.
 
@@ -57,7 +60,11 @@ pull-request code, and a PR can change workflow steps, so it must not hold
 This job renders `install/manifests/overlays/main` the way `deploy` and Argo CD
 will. It works on a copy: it pins the image with `kustomize edit set image`,
 adds a placeholder `env.env`, runs `kustomize build`, and checks the pinned
-image is in the output. A merge to `main` deploys right away, so a manifest
+image is in the output. Then
+[`scripts/check-manifest-security.mjs`](../scripts/check-manifest-security.mjs)
+checks every container's effective security context: `runAsNonRoot`, numeric
+non-zero `runAsUser`/`runAsGroup`, no privilege escalation, read-only root
+filesystem, all capabilities dropped and a seccomp profile. A merge to `main` deploys right away, so a manifest
 that doesn't render must fail on the pull request. `deploy` needs this job.
 See [deployment.md](deployment.md).
 

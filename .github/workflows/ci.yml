@@ -163,10 +163,27 @@ jobs:
           echo "/api -> $api, /mcp -> $mcp"
           if [ "$api" != 401 ] || [ "$mcp" != 401 ]; then docker logs money-smoke; exit 1; fi
 
+      - name: Check image user is numeric and non-root
+        # The kubelet can only verify runAsNonRoot against a numeric USER
+        # (`USER node` fails with "image has non-numeric user"). Docker does
+        # not enforce runAsNonRoot, so check it explicitly, and check that the
+        # number still is the base image's `node` user, which the manifests'
+        # runAsUser/runAsGroup (1000/1000) rely on.
+        run: |
+          set -euo pipefail
+          user=$(docker image inspect money:ci --format '{{.Config.User}}')
+          echo "image USER: $user"
+          if ! echo "$user" | grep -Eq '^[1-9][0-9]*(:[0-9]+)?$'; then
+            echo "image USER must be a numeric, non-zero uid[:gid]"; exit 1
+          fi
+          ids=$(docker run --rm --entrypoint sh money:ci -c 'echo "$(id -u):$(id -g) $(id -u node):$(id -g node)"')
+          echo "runtime ids / node ids: $ids"
+          [ "$ids" = "1000:1000 1000:1000" ] || { echo "expected uid/gid 1000:1000, the node user"; exit 1; }
+
       - name: Smoke test image (temporary in-memory mode, as deployed)
-        # Mirrors install/manifests: DATABASE_MODE=memory, read-only root
-        # filesystem, small /tmp, no capabilities. Also checks that production
-        # still refuses to start with no database configured.
+        # Mirrors install/manifests: DATABASE_MODE=memory, uid/gid 1000, read-only
+        # root filesystem, small /tmp, no capabilities. Also checks that
+        # production still refuses to start with no database configured.
         run: |
           set -euo pipefail
           key=$(openssl rand -base64 32)
@@ -176,6 +193,7 @@ jobs:
           grep -q "DATABASE_URL is required in production" refuse.log
           docker run -d --name money-memory --network host \
             -e SESSION_ENCRYPTION_KEY="$key" \
+            --user 1000:1000 \
             --read-only --tmpfs /tmp:size=64m --cap-drop ALL --security-opt no-new-privileges \
             -e PORT=4181 \
             -e DATABASE_MODE=memory \
@@ -214,6 +232,17 @@ jobs:
       - name: Setup Kustomize
         uses: imranismail/setup-kustomize@v2
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        # Only needs `yaml` for the security check; skip lifecycle scripts
+        run: npm ci --ignore-scripts
+
       - name: Render as the deploy job and spark-ops will
         # Same image pin as `deploy`, on a copy, then build the overlay Argo CD syncs
         run: |
@@ -225,6 +254,9 @@ jobs:
           kustomize build "$work/money/overlays/main" > "$work/rendered.yaml"
           grep -q "image: $IMAGE:main-0000000" "$work/rendered.yaml"
           cat "$work/rendered.yaml"
+          # Numeric non-root user and the rest of the hardening (the kubelet
+          # refuses runAsNonRoot with a non-numeric image user)
+          node scripts/check-manifest-security.mjs "$work/rendered.yaml"
 
   publish:
     # Only job holding packages: write for branch builds. It never runs on

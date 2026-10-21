@@ -38,7 +38,14 @@ spec:
             # never committed. Not optional: a missing key must stop the pod.
             - secretRef:
                 name: money-session
+          # Numeric user and group, as in spark-ops' other hardened workloads.
+          # The kubelet enforces runAsNonRoot only against a numeric UID; 1000
+          # is the image's `node` user (Dockerfile USER 1000:1000).
+          # scripts/check-manifest-security.mjs checks this in CI.
           securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             capabilities:

@@ -36,7 +36,11 @@ RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev
 COPY --from=builder /workdir/packages/auth/dist ./packages/auth/dist
 COPY --from=builder /workdir/apps/backend/dist ./apps/backend/dist
 
-USER node
+# The base image's `node` user, by number (uid=1000 gid=1000 in node:24-alpine;
+# CI checks this). Kubernetes runAsNonRoot can only verify a numeric user:
+# `USER node` makes the kubelet refuse to start the container. App files stay
+# root-owned and read-only; the only writable path at runtime is /tmp.
+USER 1000:1000
 
 EXPOSE 4180
 
