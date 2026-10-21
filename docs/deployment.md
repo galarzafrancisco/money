@@ -61,6 +61,14 @@ follow `spark-ops/k8s/address-australia`, the existing
 - **The pod is hardened**: it runs as non-root with a read-only root
   filesystem, no capabilities and a 64Mi `/tmp`. CI smoke-tests the image
   with the same restrictions.
+- **The user is numeric.** The container sets `runAsUser: 1000` and
+  `runAsGroup: 1000`, and the image declares `USER 1000:1000` (the
+  `node` user of `node:24-alpine`). The kubelet enforces `runAsNonRoot` only
+  against a numeric UID: with `USER node` and no `runAsUser`, the pod fails
+  with `CreateContainerConfigError` ("image has non-numeric user"). This
+  follows the hardened workloads in spark-ops (observability). Taico's own
+  manifests set no security context, so they are not a model here. CI checks
+  both the image and the rendered manifests.
 
 ### Validating locally
 
@@ -70,6 +78,9 @@ kubectl kustomize install/manifests/overlays/main            # render
 cp -r install/manifests /tmp/money && (cd /tmp/money/base && \
   kustomize edit set image ghcr.io/galarzafrancisco/money=ghcr.io/galarzafrancisco/money:main-0000000) && \
   kustomize build /tmp/money/overlays/main
+# security context check (numeric non-root user and hardening):
+kubectl kustomize install/manifests/overlays/main > /tmp/money.yaml && \
+  node scripts/check-manifest-security.mjs /tmp/money.yaml
 ```
 
 A rendered manifest is not a deployment. Check a live rollout with
