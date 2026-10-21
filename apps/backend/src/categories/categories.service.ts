@@ -96,6 +96,9 @@ export class CategoriesService {
     return this.uow.run(async (manager) => {
       const category = isUuid(categoryId) ? await this.categories.findForUpdate(user.id, categoryId, manager) : null;
       if (!category) throw new NotFoundError(`Category ${categoryId} not found`);
+      // Lock order is category → accounts, the same as AccountsService.update (see docs/categories.md).
+      // Locking the affected accounts before counting also makes the count reflect any writer we waited for.
+      await this.categories.lockAffectedAccounts(user.id, category.id, manager);
       const usage = await this.categories.usage(user.id, category.id, manager);
       if ((usage.accounts > 0 || usage.holdings > 0) && !unassign) {
         throw new ConflictError(

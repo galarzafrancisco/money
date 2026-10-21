@@ -50,6 +50,26 @@ export class CategoriesRepository {
     return manager.save(CategoryEntity, category);
   }
 
+  /**
+   * Locks (FOR UPDATE, in id order) every account that deleting this category
+   * touches: accounts it is assigned to, whose category_id is set to null, and
+   * accounts with a holding assigned to it, whose holding_categories rows
+   * cascade. Taking these up front, after the category lock, keeps the order
+   * category → account; otherwise the cascades would take them mid-delete in
+   * trigger order and could deadlock with an account delete.
+   */
+  async lockAffectedAccounts(userId: string, categoryId: string, manager: EntityManager): Promise<void> {
+    await manager.query(
+      `SELECT a.id FROM accounts a
+        WHERE a.user_id = $1
+          AND (a.category_id = $2 OR EXISTS (
+            SELECT 1 FROM holding_categories h WHERE h.account_id = a.id AND h.category_id = $2))
+        ORDER BY a.id
+        FOR UPDATE`,
+      [userId, categoryId],
+    );
+  }
+
   async delete(userId: string, categoryId: string, manager: EntityManager): Promise<void> {
     await manager.delete(CategoryEntity, { id: categoryId, userId });
   }

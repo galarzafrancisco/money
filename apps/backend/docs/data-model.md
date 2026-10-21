@@ -118,5 +118,23 @@ it again. Transfers between accounts are a separate task (159468e5).
 
 - **Hierarchy changes** (creating, moving or deleting an account) lock the
   user's row before the account row. Concurrent moves are serialized, so
-  they can't create a cycle together. Transaction writes lock only the
-  account row, so the lock order (user, then account) can't deadlock.
+  they can't create a cycle together.
+
+### Lock order
+
+Every writer takes locks in this order, and skips the ones it doesn't need:
+
+1. the user row (`FOR UPDATE`): hierarchy changes only;
+2. a category row: `FOR SHARE` to assign it to an account or holding,
+   `FOR UPDATE` to delete it;
+3. account rows (`FOR UPDATE`): one account for a transaction write or an
+   account update/delete; when a category is deleted, every account it
+   affects (directly, or through a holding), in id order.
+
+Postgres takes the ON DELETE SET NULL / CASCADE actions of a category delete
+on the account rows. Without step 3 up front, a delete holding the category
+would wait for an account that an assignment holds while that assignment waits
+for the category: a deadlock. `src/category-locking.e2e.spec.ts` forces that
+interleaving against real Postgres. New writers, transfers (159468e5)
+included, must keep this order. A transfer that locks two accounts must lock
+them in id order.

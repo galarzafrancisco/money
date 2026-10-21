@@ -91,8 +91,11 @@ export class AccountsService {
   async update(user: CurrentUser, accountId: string, input: UpdateAccountInput): Promise<AccountView> {
     const data = parseInput(updateAccountSchema, input);
     return this.uow.run(async (manager) => {
-      // Hierarchy lock first (user row), then the account row: the same order as create and delete
+      // Lock order: hierarchy (user row) → category being assigned (FOR SHARE) → account row.
+      // The category comes before the account because deleting a category locks the category and
+      // then the accounts it is assigned to; taking them the other way round here would deadlock.
       await this.accounts.lockHierarchy(user.id, manager);
+      if (data.categoryId) await requireCategoryForAssignment(this.categories, user.id, data.categoryId, manager);
       const account = isUuid(accountId) ? await this.accounts.findForUpdate(user.id, accountId, manager) : null;
       if (!account) throw new NotFoundError(`Account ${accountId} not found`);
 
@@ -104,7 +107,6 @@ export class AccountsService {
       if (data.name !== undefined || parentAccountId !== account.parentAccountId) {
         await this.assertNameFree(user.id, name, parentAccountId, account.id, manager);
       }
-      if (data.categoryId) await requireCategoryForAssignment(this.categories, user.id, data.categoryId, manager);
 
       account.name = name;
       account.parentAccountId = parentAccountId;

@@ -22,7 +22,7 @@ top-level account.
 | Ownership | The parent must be one of your accounts. Another user's account is answered with 404 (`not_found`). The database enforces this as well, with the composite FK `(parent_account_id, user_id) → accounts(id, user_id)`. |
 | Depth | At most **5 levels**, where a top-level account is level 1. Exceeding it gives 409 with `details.maxDepth`. |
 | Cycles | Moving an account under itself or under one of its own subaccounts gives 409 (`details.reason`: `self` or `cycle`). |
-| Concurrency | Every hierarchy change (create, move, delete) first locks the user's row. Two concurrent moves therefore can't create a cycle together. |
+| Concurrency | Every hierarchy change (create, move, delete) first locks the user's row. Two concurrent moves therefore can't create a cycle together. Assigning or deleting a category locks the category before any account row; see "Lock order" in data-model.md. |
 | Names | Unique, ignoring case, among siblings: accounts with the same parent, or the top-level accounts. Two banks can each have a "Term Deposit 1". |
 | Deleting | Refused (409, `details.subaccountCount`) while the account has subaccounts. Move or delete them first. |
 
