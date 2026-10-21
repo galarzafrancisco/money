@@ -7,3 +7,5 @@
 - Decimal amounts are typed as strings in the spec and client.
 - Spec changes avoid schema features the generator does not support (`allOf`/`oneOf`/`anyOf`, file uploads, cookie parameters), or the generator is extended upstream.
 - Client instances are created per session/user with `getAccessToken` (or a cookie session); there is no global client holding one user's token.
+- A new or changed response shape updates the matching `<domain>.responses.ts` schema; `openapi.e2e.spec.ts` covers the route.
+- Feature code reads API errors with `moneyErrorOf()` and branches on `error.code`, not on HTTP status text.

@@ -1,0 +1,50 @@
+{
+  "name": "@money/client",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Typed client for Money's REST API, generated from the backend's OpenAPI spec with @taico/openapi-sdkgen.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "generate": "openapi-sdkgen ../../apps/backend/openapi.json src/generated",
+    "build": "npm run generate && tsc -p tsconfig.json",
+    "typecheck": "npm run generate && tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@taico/openapi-sdkgen": "^0.8.5",
+    "typescript": "^5.9.3"
+  },
+  "nx": {
+    "implicitDependencies": [
+      "@money/backend"
+    ],
+    "targets": {
+      "build": {
+        "inputs": [
+          "production",
+          "{workspaceRoot}/apps/backend/openapi.json"
+        ],
+        "outputs": [
+          "{projectRoot}/dist",
+          "{projectRoot}/src/generated"
+        ]
+      },
+      "typecheck": {
+        "dependsOn": [
+          "^build"
+        ]
+      }
+    }
+  }
+}

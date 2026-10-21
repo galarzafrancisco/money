@@ -1,0 +1,16 @@
+.card {
+  background: var(--surface);
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--r-3);
+  box-shadow: var(--shadow-1);
+  padding: var(--space-5);
+  min-width: 0;
+}
+.card--flush { padding: 0; overflow: hidden; }
+.card__header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; margin-bottom: var(--space-4); }
+.card--flush .card__header { padding: var(--space-4) var(--space-5) 0; }
+@media (max-width: 40rem) {
+  .card { padding: var(--space-4); }
+  .card--flush { padding: 0; }
+  .card--flush .card__header { padding: var(--space-4) var(--space-4) 0; }
+}

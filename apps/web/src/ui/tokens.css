@@ -1,0 +1,101 @@
+/*
+ * Design tokens: the only place raw colours, sizes and spacing live
+ * (docs/ui/guidelines.md §4). Themes override tokens via [data-theme].
+ */
+:root {
+  --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --fs-1: 0.75rem;
+  --fs-2: 0.875rem;
+  --fs-3: 1rem;
+  --fs-4: 1.125rem;
+  --fs-5: 1.375rem;
+  --fs-6: 1.75rem;
+  --lh-tight: 1.25;
+  --lh-normal: 1.5;
+  --fw-normal: 400;
+  --fw-medium: 500;
+  --fw-bold: 650;
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+  --space-8: 4rem;
+
+  --r-1: 0.25rem;
+  --r-2: 0.5rem;
+  --r-3: 0.75rem;
+  --r-4: 999px;
+
+  --border-width: 1px;
+  --focus-width: 3px;
+  --touch-target: 2.75rem;
+  --control-height: 2.5rem;
+  --sidebar-width: 15rem;
+  --content-max: 72rem;
+  --form-max: 40rem;
+  --swatch-size: 0.875rem;
+  --z-nav: 20;
+  --z-drawer: 30;
+  --duration: 120ms;
+}
+
+:root,
+[data-theme='light'] {
+  --bg: #f5f6f8;
+  --surface: #ffffff;
+  --surface-2: #eef0f4;
+  --text: #111827;
+  --text-muted: #5b6474;
+  --text-inverse: #ffffff;
+  --border: #d4d8e0;
+  --border-subtle: #e6e9ef;
+  --accent: #1f5fbf;
+  --accent-contrast: #ffffff;
+  --accent-subtle: #e3edfb;
+  --success: #17733f;
+  --success-subtle: #e2f4e9;
+  --warning: #8a5300;
+  --warning-subtle: #fdf1dc;
+  --danger: #b42318;
+  --danger-subtle: #fdeaea;
+  --disabled-bg: #e6e9ef;
+  --disabled-text: #8a93a3;
+  --focus-ring: #2f7de1;
+  --overlay: rgba(17, 24, 39, 0.45);
+  --shadow-1: 0 1px 2px rgba(17, 24, 39, 0.06);
+  --shadow-2: 0 4px 12px rgba(17, 24, 39, 0.1);
+  --shadow-3: 0 12px 32px rgba(17, 24, 39, 0.18);
+}
+
+[data-theme='dark'] {
+  --bg: #0f141b;
+  --surface: #171d26;
+  --surface-2: #1f2733;
+  --text: #e8ecf2;
+  --text-muted: #9aa5b5;
+  --text-inverse: #0f141b;
+  --border: #2f3a49;
+  --border-subtle: #252e3b;
+  --accent: #6aa6ff;
+  --accent-contrast: #0b1220;
+  --accent-subtle: #1b2a42;
+  --success: #5cc98a;
+  --success-subtle: #15291e;
+  --warning: #f0b45a;
+  --warning-subtle: #2e2412;
+  --danger: #ff7b72;
+  --danger-subtle: #321816;
+  --disabled-bg: #252e3b;
+  --disabled-text: #6b7687;
+  --focus-ring: #8bb9ff;
+  --overlay: rgba(0, 0, 0, 0.6);
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-2: 0 4px 12px rgba(0, 0, 0, 0.45);
+  --shadow-3: 0 12px 32px rgba(0, 0, 0, 0.55);
+}

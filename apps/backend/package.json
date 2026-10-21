@@ -5,7 +5,7 @@
   "description": "Money backend: REST + MCP over shared investment-tracking business logic.",
   "main": "./dist/main.js",
   "scripts": {
-    "build": "nest build",
+    "build": "nest build && node dist/openapi/generate-spec.js",
     "build:prod": "npm run build",
     "start": "node dist/main.js",
     "start:dev": "nest start --watch",
@@ -47,5 +47,15 @@
     "typeorm": "^0.3.31",
     "typeorm-pglite": "^0.3.4",
     "zod": "^4.6.7"
+  },
+  "nx": {
+    "targets": {
+      "build": {
+        "outputs": [
+          "{projectRoot}/dist",
+          "{projectRoot}/openapi.json"
+        ]
+      }
+    }
   }
 }

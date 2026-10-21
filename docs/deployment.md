@@ -56,6 +56,10 @@ follow `spark-ops/k8s/address-australia`, the existing
   hydration needs `overlays/main/`.
 - **No volume, no Postgres Service or EndpointSlice.** Money has no host storage
   or database yet.
+- **The image serves the web app** at `/` from the same origin as `/api` and
+  `/auth` (the Dockerfile copies `apps/web/dist`), so the cookie session works
+  without CORS or a separate frontend deployment. CI's smoke test checks that
+  `/accounts` returns the app.
 - **Probes use `/health`.** The liveness probe is lenient because a restart
   wipes the in-memory data.
 - **The pod is hardened**: it runs as non-root with a read-only root

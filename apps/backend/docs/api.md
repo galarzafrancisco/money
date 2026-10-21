@@ -14,6 +14,35 @@ are described in [web-auth.md](web-auth.md).
 Amounts are decimal strings. The MCP tools also accept JSON numbers and convert
 them, but strings are preferred.
 
+## OpenAPI spec and generated client
+
+`npm -w @money/backend run build` writes `apps/backend/openapi.json` (OpenAPI 3.0).
+`packages/client` (`@money/client`) generates the typed client from it with
+`@taico/openapi-sdkgen`, and the web app uses that client. Each route's
+metadata comes from its `@ApiRoute(...)` decorator: tag, `operationId`, the
+service's zod query or body schema, and a response schema from
+`<domain>.responses.ts`. The client's resources follow the tags:
+
+- `money.accounts`, `transactions`, `lots`, `transfers`, `categories`;
+- `money.reports`, `portfolio`, `prices`, `valuations`, `users`.
+
+`POST /api/accounts/:id/transactions` appears as a single flattened
+`RecordTransactionRequest`: a `type` enum plus every type's fields. The
+generator has no `oneOf`, so the per-type rules below are enforced by the
+service. The details are in
+[docs/architecture/api-clients.md](../../../docs/architecture/api-clients.md).
+
+## Web app
+
+After a build, the backend serves `apps/web/dist` (or `WEB_DIST_DIR`) at `/`.
+That keeps the web app on the same origin as `/api` and `/auth`, which the
+cookie session requires.
+
+- Any `GET` that asks for HTML outside `/api`, `/auth`, `/mcp`, `/health` and
+  `/.well-known` receives `index.html`.
+- Hashed assets are cached for a year, and `index.html` is never cached.
+- Without a build (API-only development), nothing extra is served.
+
 ## REST
 
 | Method | Path | Body or query | Returns |
