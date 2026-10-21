@@ -1,0 +1,338 @@
+# Money CI/CD. Follows the ai-monorepo flow (test -> image -> spark-ops PR).
+# Triggers, image tags, secrets and assumptions are documented in docs/ci.md.
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+      - feature/**
+  push:
+    branches:
+      - main
+  release:
+    types:
+      - published
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  # Never cancel main: each merge must reach spark-ops
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  test:
+    # Both database back ends run the full suite. Postgres covers the
+    # concurrency/locking/trigger tests that are skipped on PGlite; PGlite is
+    # what development and the temporary in-memory deployment use.
+    name: Build and test (${{ matrix.database }})
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        database: [postgres, pglite]
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: money_ci
+          POSTGRES_USER: money
+          POSTGRES_PASSWORD: money_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U money -d money_ci"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 20
+
+    env:
+      # Admin connection: each test file creates and drops its own database
+      TEST_POSTGRES_URL: ${{ matrix.database == 'postgres' && 'postgresql://money:money_ci@127.0.0.1:5432/postgres' || '' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Restore nx cache
+        uses: actions/cache@v4
+        with:
+          path: .nx/cache
+          key: nx-${{ runner.os }}-${{ matrix.database }}-${{ github.sha }}
+          restore-keys: |
+            nx-${{ runner.os }}-${{ matrix.database }}-
+
+      - name: Build
+        run: npm run build
+
+      - name: Verify @taico/auth imports
+        run: npm run verify:auth
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test @taico/auth
+        run: npx nx run @taico/auth:test
+
+      - name: Test backend
+        # Each test file boots its own app and database; two workers keep
+        # memory bounded (see docs/ci.md)
+        run: npm -w @money/backend test -- --maxWorkers=2 --ci
+
+  image:
+    # Runs untrusted PR code, so it gets a read-only token. Publishing is the
+    # separate main-only `publish` job, the only one with packages: write.
+    name: Build container image
+    runs-on: ubuntu-24.04-arm
+    needs: test
+    if: github.event_name != 'release'
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: money
+          POSTGRES_USER: money
+          POSTGRES_PASSWORD: money_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U money -d money"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 20
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/arm64
+          load: true
+          tags: money:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test image
+        # Production mode against Postgres: migrations run, /health answers,
+        # unauthenticated /api and /mcp answer 401
+        run: |
+          set -euo pipefail
+          docker run -d --name money-smoke --network host \
+            -e PORT=4180 \
+            -e DATABASE_URL=postgresql://money:money_ci@127.0.0.1:5432/money \
+            -e TAICO_ISSUER=https://taico.invalid \
+            -e PUBLIC_BASE_URL=http://127.0.0.1:4180 \
+            -e VALUATION_JOB_ENABLED=false \
+            money:ci
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:4180/health; then echo; break; fi
+            if [ "$i" = 60 ]; then echo "health check timed out"; docker logs money-smoke; exit 1; fi
+            sleep 1
+          done
+          api=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:4180/api/accounts)
+          mcp=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:4180/mcp)
+          echo "/api -> $api, /mcp -> $mcp"
+          if [ "$api" != 401 ] || [ "$mcp" != 401 ]; then docker logs money-smoke; exit 1; fi
+
+      - name: Show container logs
+        if: always()
+        run: docker logs money-smoke 2>&1 | tail -50 || true
+
+  publish:
+    # Only job holding packages: write for branch builds. It never runs on
+    # pull_request events, so PR code cannot obtain a GHCR-writable token.
+    name: Push container image
+    runs-on: ubuntu-24.04-arm
+    needs: image
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest
+          labels: |
+            org.opencontainers.image.source.branch=${{ github.ref_name }}
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push image
+        # Same commit and Dockerfile as the smoke-tested build in `image`, so
+        # layers come from the shared GHA build cache
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+
+  release-tag:
+    name: Tag existing image with release tag
+    runs-on: ubuntu-24.04-arm
+    needs: test
+    if: github.event_name == 'release'
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout release commit
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Promote main-<sha> image to release tag
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          SOURCE_TAG="main-$(git rev-parse --short=7 HEAD)"
+          docker buildx imagetools create --tag "$IMAGE:$RELEASE_TAG" "$IMAGE:$SOURCE_TAG"
+
+  deploy:
+    name: Copy manifests to spark-ops
+    runs-on: ubuntu-24.04-arm
+    needs: publish
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout money
+        uses: actions/checkout@v5
+        with:
+          path: money
+
+      - name: Check for deployment manifests
+        id: manifests
+        run: |
+          if [ -f money/install/manifests/base/kustomization.yaml ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::install/manifests/base/kustomization.yaml not found; image pushed but no spark-ops deployment PR opened."
+          fi
+
+      - name: Checkout spark-ops
+        if: steps.manifests.outputs.present == 'true'
+        uses: actions/checkout@v5
+        with:
+          repository: galarzafrancisco/spark-ops
+          token: ${{ secrets.SPARK_OPS_TOKEN }}
+          path: spark-ops
+
+      - name: Setup Kustomize
+        if: steps.manifests.outputs.present == 'true'
+        uses: imranismail/setup-kustomize@v2
+
+      - name: Extract image tag
+        id: image-tag
+        run: |
+          SHORT_SHA=$(echo "$GITHUB_SHA" | cut -c1-7)
+          echo "tag=main-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Copy manifests to spark-ops
+        if: steps.manifests.outputs.present == 'true'
+        run: |
+          set -euo pipefail
+          rm -rf spark-ops/k8s/money
+          mkdir -p spark-ops/k8s
+          cp -r money/install/manifests spark-ops/k8s/money
+          cd spark-ops/k8s/money/base
+          kustomize edit set image "$IMAGE=$IMAGE:${{ steps.image-tag.outputs.tag }}"
+
+      - name: Create spark-ops pull request
+        if: steps.manifests.outputs.present == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.SPARK_OPS_TOKEN }}
+          path: spark-ops
+          commit-message: |
+            deploy: update money manifests and image to ${{ steps.image-tag.outputs.tag }}
+
+            Source: ${{ github.repository }}@${{ github.sha }}
+            Build: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+          branch: deploy/money-${{ steps.image-tag.outputs.sha }}
+          delete-branch: true
+          title: "Deploy money (${{ steps.image-tag.outputs.tag }})"
+          body: |
+            ## Deployment Update
+
+            **Service**: money
+            **Image Tag**: `${{ steps.image-tag.outputs.tag }}`
+            **Source Commit**: ${{ github.sha }}
+
+            ### Changes
+            - Copied latest manifests from `install/manifests/`
+            - Updated image tag to `${{ steps.image-tag.outputs.tag }}`
+
+            ### Build Information
+            - **Build Run**: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            - **Image**: `${{ env.IMAGE }}:${{ steps.image-tag.outputs.tag }}`
+
+            ---
+            *This PR will be automatically validated and merged by spark-ops workflow.*
+
+          labels: |
+            automated-deployment
+            money
