@@ -13,7 +13,7 @@ For each user and **valuation date D**, the job stores:
 - `valuation_days`: one row per (user, D): `status` (`COMPLETE` or
   `PARTIAL`), the price provider used and when it was computed.
 - `valuation_holdings`: one row per (user, D, account, symbol). It records:
-  - `quantity`, `cost_base` and FIFO `lots` (lot id, acquired on, remaining
+  - `quantity`, `cost_base` and `lots`, matched by each sale's stored allocations or FIFO (lot id, acquired on, remaining
     quantity, cost base, market value) **as held at the end of D**. The job
     replays the account's ledger up to D, so the quantities are the ones held
     on D, not today's.
@@ -101,8 +101,10 @@ continue, and the next run tries again.
 A trigger on `transactions` (`TRG_transactions_valuation_recompute`) fires on
 every insert, update or delete of a BUY or SELL. It upserts
 `valuation_recompute_requests(account_id, from_date = earliest affected date)`.
-It runs in the writer's own transaction, so every writer is covered: the
-transactions API, transfers, and account deletion. The next run recomputes all
+A second trigger on `sale_lot_allocations` requests a recompute from the
+sale's date whenever a sale's lot allocations change. Each trigger runs in the
+writer's own transaction, so every writer is covered: the transactions API,
+transfers, and account deletion. The next run recomputes all
 of the user's dates from `from_date`. Then it clears the request, unless it
 was renewed meanwhile (compared on `requested_at`), in which case it stays for
 the following run. If a backdated delete removes the first purchase,

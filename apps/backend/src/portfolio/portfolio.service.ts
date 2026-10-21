@@ -14,7 +14,8 @@ import type { CurrentUser } from '../users/users.service';
  */
 export const ACCOUNTING_NOTES = [
   'Personal tracking only, not tax advice. Check figures with the ATO or a registered tax agent.',
-  'Parcels are matched first-in, first-out (FIFO).',
+  'A sale with lot allocations uses specific identification (the parcels it names); a sale without uses first-in, first-out (FIFO). Each disposal says which (selection).',
+  'A sale\'s fees and net proceeds are shared between its parcels pro-rata by quantity (10 dp, last parcel takes the remainder), so disposals add up exactly to the sale.',
   'Cost base includes brokerage. Sale proceeds are net of brokerage.',
   'Cost bases, proceeds and gains are in the currency of the trade. They are not converted to AUD at transaction-date rates, which the ATO requires for foreign-currency CGT.',
   'heldOverTwelveMonths flags parcels that pass the 12-month test for the CGT discount. No discount is applied.',
@@ -38,10 +39,14 @@ export type PortfolioView = {
       currency: string;
       acquiredOn: string;
       disposedOn: string;
+      selection: 'FIFO' | 'SPECIFIC';
       quantity: string;
       costBase: string;
+      grossProceeds: string;
+      fees: string;
       proceeds: string;
       gain: string;
+      daysHeld: number;
       heldOverTwelveMonths: boolean;
     }[];
   };
@@ -189,10 +194,14 @@ export class PortfolioService {
           currency: disposal.currency,
           acquiredOn: disposal.acquiredOn,
           disposedOn: disposal.disposedOn,
+          selection: disposal.selection,
           quantity: fmt(disposal.quantity),
           costBase: fmt(disposal.costBase),
+          grossProceeds: fmt(disposal.grossProceeds),
+          fees: fmt(disposal.fees),
           proceeds: fmt(disposal.proceeds),
           gain: fmt(disposal.gain),
+          daysHeld: disposal.daysHeld,
           heldOverTwelveMonths: disposal.heldOverTwelveMonths,
         })),
       },

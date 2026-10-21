@@ -38,7 +38,20 @@ export type TradeEntry = Base & {
         fees: MoneyDecimal;
         /** BUY: cash paid incl. fees. SELL: cash received net of fees. */
         total: MoneyDecimal;
+        /**
+         * SELL only. When present the sale uses specific identification: it
+         * consumes exactly these quantities from these lots, in this order.
+         * Absent means FIFO.
+         */
+        allocations?: readonly LotAllocation[];
       };
+
+/** Lot-matching method of a sale */
+export const LOT_SELECTIONS = ['FIFO', 'SPECIFIC'] as const;
+export type LotSelection = (typeof LOT_SELECTIONS)[number];
+
+/** Part of a sale explicitly taken from one purchase lot */
+export type LotAllocation = { lotId: string; quantity: MoneyDecimal };
 export type DividendEntry = Base & {
         type: 'DIVIDEND';
         symbol: string;
@@ -61,9 +74,11 @@ export type TransferEntry = Base & {
 
 export type LedgerEntry = CashEntry | FxEntry | TradeEntry | DividendEntry | TransferEntry;
 
-/** A parcel of shares bought by one BUY, as far as it has not been sold */
+/** A parcel of shares bought by one BUY, as far as it has not been sold. Its ID is the BUY transaction's ID. */
 export type Lot = {
   lotId: string;
+  /** The BUY's sequence: with acquiredOn, the lot's position in FIFO order */
+  sequence: number;
   symbol: string;
   currency: string;
   acquiredOn: string;
@@ -82,11 +97,19 @@ export type Disposal = {
   currency: string;
   acquiredOn: string;
   disposedOn: string;
+  /** How the sale picked this lot */
+  selection: LotSelection;
   quantity: MoneyDecimal;
   costBase: MoneyDecimal;
-  /** Share of the sale's net proceeds (after brokerage) */
+  /** Share of the sale's brokerage and fees, pro-rata by quantity */
+  fees: MoneyDecimal;
+  /** Share of the sale's proceeds before fees: proceeds + fees */
+  grossProceeds: MoneyDecimal;
+  /** Share of the sale's net proceeds (after brokerage): grossProceeds − fees */
   proceeds: MoneyDecimal;
   gain: MoneyDecimal;
+  /** Calendar days from acquisition to disposal */
+  daysHeld: number;
   /**
    * Disposed of more than 12 months after acquisition, the ATO's test for the
    * CGT discount. Informational only: no discount is applied.
@@ -116,6 +139,8 @@ export type LedgerState = {
   /** Open positions only (quantity > 0) */
   positions: Map<string, Position>;
   disposals: Disposal[];
+  /** Every lot ever opened, including fully sold ones, by lot ID */
+  lotsById: Map<string, Lot>;
   dividends: Map<string, DividendTotals>;
   /** Dividends per symbol and currency */
   dividendsBySymbol: Map<string, DividendTotals & { symbol: string }>;

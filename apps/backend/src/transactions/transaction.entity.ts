@@ -1,6 +1,7 @@
 import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, PrimaryColumn, UpdateDateColumn } from 'typeorm';
 import { AccountEntity } from '../accounts/account.entity';
-import type { TransactionType } from '../ledger/ledger.types';
+import type { LotSelection, TransactionType } from '../ledger/ledger.types';
+import type { SaleLotAllocationEntity } from './sale-lot-allocation.entity';
 
 const decimalColumn = (name: string) => ({ name, type: 'numeric' as const, precision: 30, scale: 10, nullable: true });
 
@@ -111,6 +112,16 @@ export class TransactionEntity {
   /** The account on the other side of the transfer (TRANSFER_OUT / TRANSFER_IN only) */
   @Column({ name: 'counterparty_account_id', type: 'uuid', nullable: true })
   counterpartyAccountId: string | null;
+
+  /** SELL only: FIFO, or SPECIFIC when the sale names its lots in sale_lot_allocations */
+  @Column({ name: 'lot_selection', type: 'varchar', length: 10, nullable: true })
+  lotSelection: LotSelection | null;
+
+  /**
+   * Not a column. A SPECIFIC sale's allocations in order, attached by
+   * TransactionsRepository on every read so the ledger can replay them.
+   */
+  lotAllocations?: SaleLotAllocationEntity[];
 
   /** Which field Money calculated from the others (e.g. 'fees' for a three-of-four trade), if any */
   @Column({ name: 'calculated_field', type: 'varchar', length: 20, nullable: true })

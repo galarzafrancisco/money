@@ -20,6 +20,8 @@ import { MARKET_PRICE_PROVIDER, type MarketPriceProvider } from './market-prices
 import { MarketPricesService } from './market-prices/market-prices.service';
 import { MockPriceProvider } from './market-prices/mock-price.provider';
 import { YahooPriceProvider } from './market-prices/yahoo-price.provider';
+import { LotsController } from './lots/lots.controller';
+import { LotsService } from './lots/lots.service';
 import { McpController } from './mcp/mcp.controller';
 import { MoneyMcpServerFactory } from './mcp/money-mcp.server';
 import { PortfolioController } from './portfolio/portfolio.controller';
@@ -67,7 +69,7 @@ export class AppModule {
           metadata: { resources: protectedResources(config), authorizationServers: config.auth.authorizationServers },
         }),
       ],
-      controllers: [HealthController, AccountsController, TransactionsController, PortfolioController, CategoriesController, ReportsController, TransfersController, ValuationsController, McpController],
+      controllers: [HealthController, AccountsController, TransactionsController, LotsController, PortfolioController, CategoriesController, ReportsController, TransfersController, ValuationsController, McpController],
       providers: [
         { provide: APP_CONFIG, useValue: config },
         { provide: MARKET_PRICE_PROVIDER, useValue: options.priceProvider ?? priceProviderFor(config) },
@@ -84,6 +86,7 @@ export class AppModule {
         ReportsService,
         TransactionsRepository,
         TransactionsService,
+        LotsService,
         TransfersRepository,
         TransfersService,
         PortfolioService,

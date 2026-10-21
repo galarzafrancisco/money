@@ -11,8 +11,9 @@
 |---|---|---|
 | **Cost base** | Price × quantity **plus brokerage**, per parcel. | The ATO counts incidental costs of acquisition, such as brokerage, in the cost base. Other cost-base elements (e.g. capital costs, non-deductible holding costs) are not modelled. |
 | **Proceeds** | Sale price × quantity **minus brokerage**. | Incidental costs of disposal reduce the capital gain. |
-| **Parcel matching** | **FIFO**: a sale consumes the oldest parcels first. | The ATO accepts FIFO when parcels can't be identified, and also lets you choose which parcels you sell (specific identification). Specific identification is **not supported yet**. |
-| **Partial parcels** | Cost base is split in proportion to the quantity sold from the parcel. Sale proceeds are split across parcels in proportion to quantity. | The remainder goes to the last slice, so the parts add up exactly. |
+| **Parcel matching** | **Specific identification** when a sale gives `allocations` (which purchases, how many from each, possibly part of several). Otherwise **FIFO**: the oldest open parcels first. | The ATO lets you identify the parcels you sold when you can tell them apart, and accepts FIFO when you can't. Money records your choice; it doesn't pick one for you. Explicit picks are never re-matched; FIFO matches follow the history. See [lot-selection.md](lot-selection.md). |
+| **Partial parcels** | Cost base is split in proportion to the quantity taken from the parcel. Sale fees and net proceeds are split across parcels in proportion to quantity, rounded to 10 dp. | The last slice takes the remainder, and a slice that empties a parcel takes all of its remaining cost base, so the parts add up exactly. |
+| **Holding period** | Per parcel taken: `daysHeld` and `heldOverTwelveMonths`. | Supports tax analysis; it is not a complete CGT calculation. |
 | **Realized gain / loss** | Net proceeds − cost base of the parcels sold, per sale and per parcel. | A **capital gain or loss before** discounts, carried-forward losses or any other CGT step. |
 | **Unrealized gain / loss** | Market value (current quote × quantity) − remaining cost base. | Only when the quote's currency matches the trade currency. Mock prices are labelled. |
 | **12-month test** | `heldOverTwelveMonths` is true when the disposal date is after the 12-month anniversary of the acquisition date. The days of acquisition and disposal are excluded, as the ATO counts them. | **No 50% discount is applied.** Eligibility also depends on residency and entity type. |
@@ -31,9 +32,9 @@ These need Francisco's decision before Money can report AUD tax figures:
    rate on the disposal date. Should Money record an AUD rate on each foreign
    trade (entered, or taken from the account's FX conversions), or fetch
    historical RBA rates?
-2. **Parcel selection.** Keep FIFO, or support choosing parcels per sale
-   (specific identification), or minimise gain? This changes realized gains, so
-   it is a deliberate choice.
+2. **Parcel selection.** Resolved: FIFO stays the default and specific
+   identification is available per sale ([lot-selection.md](lot-selection.md)).
+   There is no automatic "minimise gain" selection.
 3. **Forex gains on foreign cash.** USD cash held and later converted can give
    a forex gain or loss (Division 775, with the $250k balance election). Model
    it, or leave it out of scope?

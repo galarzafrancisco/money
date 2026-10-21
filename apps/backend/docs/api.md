@@ -28,6 +28,8 @@ them, but strings are preferred.
 | GET | `/api/transfers/:id` | none | Transfer, with `outTransactionId` and `inTransactionId` |
 | PATCH | `/api/transfers/:id` | Any of `date`, `description`, `fromCurrency`, `toCurrency`, `fromAmount`, `toAmount`, `rate`, `fees` (`null` recalculates). Accounts can't change. | Transfer |
 | DELETE | `/api/transfers/:id` | none | `{ deleted: true, transactionsDeleted: 2 }` |
+| GET | `/api/accounts/:id/lots` | `?symbol=&asOf=&excludeTransactionId=&includeClosed=` | Purchase lots (lotId = BUY id) with remaining quantity and cost base as of a date; see [lot-selection.md](lot-selection.md) |
+| GET | `/api/transactions/:id/allocations` | none (SELL only; 400 otherwise) | How the sale was split across lots: per-lot cost base, proceeds, fees, gain, holding period, and totals |
 | GET | `/api/accounts/:id/portfolio` | `?prices=false` skips price lookups | Cash, holdings with lots and valuations, realized gains, dividends, notes |
 | GET | `/api/categories` | none | Your categories, by name |
 | POST | `/api/categories` | `{ name, description?, color? }` | Category (201) |
@@ -50,6 +52,7 @@ Transaction bodies, by `type` (all of them take `date` YYYY-MM-DD and an optiona
 - `DEPOSIT` / `WITHDRAWAL`: `currency`, `amount`, optional `externalCurrency` + `externalAmount`
 - `FX_CONVERSION`: `fromCurrency`, `toCurrency`, two of `fromAmount` / `toAmount` / `rate`, optional `fees`
 - `BUY` / `SELL`: `symbol`, `currency`, three of `quantity` / `unitPrice` / `fees` / `total`
+- `SELL` only: optional `allocations: [{ lotId, quantity }, …]` for specific identification (adding up to `quantity`); without it lots are matched FIFO. A SELL is returned with `lotSelection` (`FIFO`/`SPECIFIC`) and `allocations`. On `PATCH`, `allocations` replaces them and `null` switches to FIFO. See [lot-selection.md](lot-selection.md).
 - `DIVIDEND`: `symbol`, `currency`, two of `grossAmount` / `withholdingTax` / `netAmount`, optional `frankingCredits`
 
 Transactions also include `TRANSFER_OUT` / `TRANSFER_IN` legs, with
@@ -83,6 +86,7 @@ none of them takes a user argument.
 | `record_deposit`, `record_withdrawal`, `record_fx_conversion`, `record_buy`, `record_sell`, `record_dividend` | `POST …/transactions` with that `type` |
 | `update_transaction`, `delete_transaction` | `PATCH` / `DELETE /api/transactions/:id` |
 | `record_transfer`, `list_transfers`, `get_transfer`, `update_transfer`, `delete_transfer` | The transfer routes |
+| `list_lots`, `get_sale_allocations` | `GET /api/accounts/:id/lots`, `GET /api/transactions/:id/allocations` |
 | `get_portfolio` | `GET /api/accounts/:id/portfolio` |
 | `list_categories`, `get_category`, `create_category`, `update_category`, `delete_category` | The category routes |
 | `set_holding_category` (`categoryId: null` clears), `list_holding_categories` | The holding-category routes |
@@ -100,6 +104,6 @@ the same `{ error: { code, message, details } }` body that REST returns.
 | 400 | `validation_failed` | Bad input, e.g. fewer than three of the four trade fields, inconsistent totals, a field that doesn't apply to the type; a transfer to the same account, unequal same-currency amounts, or an attempt to change a transfer's accounts; a report with `baseCurrency` but a missing FX rate (`details.missingRates`) |
 | 401 / 403 | (Bearer challenge) | Missing, invalid, expired or wrong-audience token |
 | 404 | `not_found` | Doesn't exist, **or belongs to another user** |
-| 409 | `conflict` | Duplicate account name among siblings or duplicate category name; deleting an account that has transactions, subaccounts or transfers; editing or deleting a transfer leg directly; a cycle or nesting deeper than 5 levels; deleting an assigned category without `unassign` |
-| 422 | `ledger_violation` | The change would make cash negative, oversell, or mix currencies for a ticker. For transfers, `details.side` says which account (`source`/`destination`). |
+| 409 | `conflict` | Duplicate account name among siblings or duplicate category name; deleting an account that has transactions, subaccounts or transfers; editing or deleting a transfer leg directly; a cycle or nesting deeper than 5 levels; deleting an assigned category without `unassign`; deleting a purchase that sales allocate shares from (`details.saleTransactionIds`) |
+| 422 | `ledger_violation` | The change would make cash negative, oversell, or mix currencies for a ticker, or a sale's lot allocations would not fit (unknown lot, other ticker, bought after the sale, not enough left). For transfers, `details.side` says which account (`source`/`destination`). |
 | 502 | `upstream_unavailable` | The price provider failed |

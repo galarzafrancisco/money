@@ -79,7 +79,7 @@ export type ValuationHistory = {
 };
 
 const NOTES = [
-  'Each valuation date values what was held at the end of that date (historical quantities, FIFO lots) at the closing price of that trading date on the holding\'s own exchange, in its local time zone.',
+  'Each valuation date values what was held at the end of that date (historical quantities and lots, matched by each sale\'s own lot allocations or FIFO) at the closing price of that trading date on the holding\'s own exchange, in its local time zone.',
   'price.status: CLOSE = that day\'s close; NON_TRADING_DAY = weekend or holiday, valued at the last close (price.tradingDate); PRICE_PENDING = no close yet, provisionally valued at the last close and re-tried; MISSING / CURRENCY_MISMATCH = not valued (marketValue null, excluded from totals.marketValue).',
   'Totals are per currency; currencies are never added together unless you pass baseCurrency and fxRates, which are applied as constant rates to every day (not historical exchange rates).',
   'Snapshots hold no categories: join with your current categories by accountId and symbol. Mock prices (isMock: true) are made up.',
