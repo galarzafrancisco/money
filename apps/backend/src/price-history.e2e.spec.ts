@@ -258,6 +258,7 @@ describe('store-first price history and as-of valuations', () => {
 
   it('migrates the price store down and back up', async () => {
     const ds = t.app.get(DataSource);
+    await ds.undoLastMigration(); // Up! account category
     await ds.undoLastMigration(); // the Up! import migration, added after the price store
     await ds.undoLastMigration();
     const [{ exists }] = await ds.query(`SELECT to_regclass('market_price_series') IS NOT NULL AS exists`);

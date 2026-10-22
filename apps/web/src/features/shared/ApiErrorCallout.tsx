@@ -8,6 +8,8 @@ const TITLES: Record<string, string> = {
   conflict: 'That conflicts with other records',
   ledger_violation: 'The account history does not allow this',
   upstream_unavailable: 'A price source is unavailable',
+  credential_rejected: 'Up did not accept that token',
+  not_configured: 'Not available on this server',
   csrf_failed: 'Please try again',
   session_expired: 'Your session ended',
   auth_unavailable: 'Sign-in service unavailable, try again shortly',

@@ -359,7 +359,7 @@ export class MoneyMcpServerFactory {
       setUpVisibilitySchema.shape,
       (args) => this.up.setVisibility(user, args),
     );
-    tool('update_up_account', 'Show or hide one imported Up account, or map it to a Money account', write, { accountId: upAccountId, ...updateUpAccountShape }, ({ accountId, ...changes }) =>
+    tool('update_up_account', 'Show or hide one imported Up account, map it to a Money account, or set its Money category', write, { accountId: upAccountId, ...updateUpAccountShape }, ({ accountId, ...changes }) =>
       this.up.updateAccount(user, accountId, changes),
     );
     tool('list_up_transactions', 'List imported Up transactions (read-only provenance records, separate from manual transactions). Visible accounts by default; pass accountId or visibility "all" for hidden ones.', read, listUpTransactionsShape, (args) =>

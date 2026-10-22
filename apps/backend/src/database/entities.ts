@@ -14,6 +14,7 @@ import { WebSessions1761500000000 } from './migrations/1761500000000-WebSessions
 import { SuperannuationAccounts1761600000000 } from './migrations/1761600000000-SuperannuationAccounts';
 import { PriceHistoryCache1761700000000 } from './migrations/1761700000000-PriceHistoryCache';
 import { UpIntegration1761800000000 } from './migrations/1761800000000-UpIntegration';
+import { UpAccountCategory1761900000000 } from './migrations/1761900000000-UpAccountCategory';
 
 export const ENTITIES = [UserEntity, AccountEntity, TransactionEntity, SaleLotAllocationEntity, CategoryEntity, HoldingCategoryEntity, TransferEntity, ...UP_ENTITIES];
 export const MIGRATIONS = [
@@ -26,4 +27,5 @@ export const MIGRATIONS = [
   SuperannuationAccounts1761600000000,
   PriceHistoryCache1761700000000,
   UpIntegration1761800000000,
+  UpAccountCategory1761900000000,
 ];

@@ -145,7 +145,7 @@ requests (the only in-memory state is the per-integration sync-coalescing map in
 
 ## Frontend contract (Accounts UI)
 
-The Accounts UI is **not** built in this change. It should use the generated
+The UI is built: **Connections** (`/connections`: token entry, account selection, category, sync, disconnect) and an "Up accounts (imported)" card on the Accounts page, in `apps/web/src/features/connections`. Each Up account can carry a Money category (`categoryId` on `updateUpAccount`; cleared if the category is deleted). It uses the generated
 client (`money.up.*`, tag `up`). Rules:
 
 1. **Default-hidden.** After `connectUp`, every imported account is hidden.

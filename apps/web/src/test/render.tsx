@@ -20,6 +20,7 @@ export type FakeClient = {
   users: Resource;
   valuations: Resource;
   dashboard: Resource;
+  up: Resource;
 };
 
 /** A stand-in for the generated client: every method is a vi.fn with an empty default */
@@ -46,6 +47,15 @@ export function fakeClient(): FakeClient {
     users: { getMe: vi.fn() },
     valuations: { getValuationHistory: vi.fn(), getValuationStatus: vi.fn(), requestValuationRecompute: vi.fn() },
     dashboard: { getDashboard: vi.fn().mockReturnValue(new Promise(() => {})) },
+    up: {
+      getUpStatus: resolve({ configured: true, status: 'none', webhookStatus: 'none', connectedAt: null, lastSyncAt: null, lastError: null, accounts: { total: 0, visible: 0, hidden: 0 }, hint: null }),
+      listUpAccounts: resolve([]),
+      connectUp: vi.fn(),
+      disconnectUp: vi.fn(),
+      syncUp: vi.fn(),
+      updateUpAccount: vi.fn(),
+      setUpAccountVisibility: vi.fn(),
+    },
   };
 }
 
