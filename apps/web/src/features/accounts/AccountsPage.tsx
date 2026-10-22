@@ -1,13 +1,16 @@
 import type { AccountReportNode } from '@money/client';
 import { Link } from 'react-router';
-import { Badge, ButtonLink, Callout, Card, EmptyState, Loading, Stack, Swatch, Table, Text, type Column } from '../../ui';
-import { UpAccountsSummary } from '../connections/UpAccountsSummary';
+import { Badge, ButtonLink, Callout, Card, Checkbox, EmptyState, Loading, Row, Stack, Swatch, Table, Text, type Column } from '../../ui';
+import { useState } from 'react';
+import { useUpAccounts, useUpStatus, type UpAccount } from '../connections/data';
 import { useCategories } from '../categories/data';
 import { ApiErrorCallout } from '../shared/ApiErrorCallout';
 import { CurrencyLines } from '../shared/CurrencyTotals';
 import { PageHeader } from '../shared/PageHeader';
 import { ACCOUNT_TYPE_LABELS, accountTree, flattenTree, useAccounts, useAccountsReport, type AccountNode } from './data';
 import './accounts.css';
+
+type Row_ = { kind: 'manual'; node: AccountNode } | { kind: 'up'; up: UpAccount };
 
 function flattenReport(nodes: AccountReportNode[]): AccountReportNode[] {
   return nodes.flatMap((n) => [n, ...flattenReport(n.children)]);
@@ -18,6 +21,11 @@ export function AccountsPage() {
   const accounts = useAccounts();
   const report = useAccountsReport();
   const categories = useCategories();
+  const upStatus = useUpStatus();
+  const upActive = upStatus.data?.status === 'active';
+  const [showAllUp, setShowAllUp] = useState(false);
+  const upAccounts = useUpAccounts(showAllUp ? 'all' : 'visible', upActive);
+  const upRows: UpAccount[] = upActive ? (upAccounts.data ?? []) : [];
 
   const header = (
     <PageHeader
@@ -31,10 +39,17 @@ export function AccountsPage() {
     />
   );
 
+  const upToggle = upStatus.data?.status === 'active' && (
+    <Row gap={3} align="center">
+      <Checkbox label="Show all Up accounts" checked={showAllUp} onChange={(e) => setShowAllUp(e.target.checked)} />
+      <Text tone="muted" size="sm" as="span">{upStatus.data.accounts.hidden} hidden · <Link to="/connections">Manage Up</Link></Text>
+    </Row>
+  );
+
   if (accounts.isPending) return <>{header}<Loading label="Loading accounts…" /></>;
   if (accounts.isError) return <>{header}<ApiErrorCallout error={accounts.error} title="Could not load your accounts" /></>;
 
-  if (accounts.data.length === 0) {
+  if (accounts.data.length === 0 && upRows.length === 0) {
     return (
       <>
         {header}
@@ -48,31 +63,51 @@ export function AccountsPage() {
         >
           Add a brokerage, bank or savings account, then record the deposits, trades and dividends that happen in it.
         </EmptyState>
-        <UpAccountsSummary />
+        {upToggle}
       </>
     );
   }
 
   const reportById = new Map(flattenReport(report.data?.accounts ?? []).map((n) => [n.id, n]));
   const categoryById = new Map((categories.data ?? []).map((c) => [c.id, c]));
-  const rows = flattenTree(accountTree(accounts.data));
+  const rows: Row_[] = [
+    ...flattenTree(accountTree(accounts.data)).map((n): Row_ => ({ kind: 'manual', node: n })),
+    ...upRows.map((u): Row_ => ({ kind: 'up', up: u })),
+  ];
 
-  const columns: Column<AccountNode>[] = [
+  const columns: Column<Row_>[] = [
     {
       key: 'name',
       header: 'Account',
-      render: ({ account, level }) => (
+      render: (row) => {
+        if (row.kind === 'up') {
+          return (
+            <span className="account-name">
+              {row.up.displayName}
+              <Badge>Cash</Badge>
+              {!row.up.visible && <Badge tone="warning">Hidden</Badge>}
+            </span>
+          );
+        }
+        const { account, level } = row.node;
+        return (
         <span className="account-name" style={{ ['--level' as string]: level }}>
           {level > 0 && <span className="account-name__branch" aria-hidden>└</span>}
           <Link to={`/accounts/${account.id}`}>{account.name}</Link>
           <Badge>{ACCOUNT_TYPE_LABELS[account.type]}</Badge>
         </span>
-      ),
+        );
+      },
     },
     {
       key: 'category',
       header: 'Category',
-      render: ({ account }) => {
+      render: (row) => {
+        if (row.kind === 'up') {
+          const c = row.up.categoryId ? categoryById.get(row.up.categoryId) : undefined;
+          return c ? <span><Swatch color={c.color} /> {c.name}</span> : <Text tone="muted" size="sm" as="span">Uncategorized</Text>;
+        }
+        const { account } = row.node;
         const own = account.categoryId ? categoryById.get(account.categoryId) : undefined;
         const effective = reportById.get(account.id)?.effectiveCategory;
         if (own) return <span><Swatch color={own.color} /> {own.name}</span>;
@@ -84,7 +119,11 @@ export function AccountsPage() {
       key: 'total',
       header: 'Value per currency',
       numeric: true,
-      render: ({ account, children }) => {
+      render: (row) => {
+        if (row.kind === 'up') {
+          return <CurrencyLines lines={[{ currency: row.up.currency, amount: row.up.balance }]} />;
+        }
+        const { account, children } = row.node;
         if (report.isPending) return <Text tone="muted" size="sm" as="span">…</Text>;
         const node = reportById.get(account.id);
         if (!node) return <Text tone="muted" size="sm" as="span">—</Text>;
@@ -103,9 +142,9 @@ export function AccountsPage() {
     <>
       {header}
       <Card flush>
-        <Table label="Accounts" columns={columns} rows={rows} rowKey={(r) => r.account.id} />
+        <Table label="Accounts" columns={columns} rows={rows} rowKey={(r) => (r.kind === 'up' ? `up-${r.up.id}` : r.node.account.id)} />
       </Card>
-      <UpAccountsSummary />
+      {upToggle}
       {report.isError && <ApiErrorCallout error={report.error} title="Totals are unavailable right now" />}
       {report.data && report.data.warnings.length > 0 && (
         <Callout tone="warning" title="Some holdings are valued at cost">

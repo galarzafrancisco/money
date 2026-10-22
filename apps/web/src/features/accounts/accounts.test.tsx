@@ -100,4 +100,20 @@ describe('new account wizard', () => {
     await user.click(screen.getByRole('button', { name: 'Change the name' }));
     expect(screen.getByLabelText('Name')).toHaveValue('Broker');
   });
+
+  it('lists imported Up accounts in the same table as the others', async () => {
+    const client = fakeClient();
+    client.accounts.listAccounts.mockResolvedValue([account({ id: 'p', name: 'Savings', type: 'CASH' })]);
+    client.up.getUpStatus.mockResolvedValue({ configured: true, status: 'active', accounts: { total: 2, visible: 1, hidden: 1 } });
+    client.up.listUpAccounts.mockResolvedValue([
+      { id: 'ua1', displayName: 'Spending', currency: 'AUD', balance: '250.00', visible: true, categoryId: null },
+    ]);
+    renderApp('/accounts', { client });
+
+    const table = await screen.findByRole('table');
+    expect(await within(table).findByText('Spending')).toBeInTheDocument();
+    expect(within(table).getAllByRole('row')).toHaveLength(3);
+    expect(within(table).getByText('250.00')).toBeInTheDocument();
+    expect(screen.queryByText('Up accounts (imported)')).not.toBeInTheDocument();
+  });
 });
