@@ -74,7 +74,8 @@ filesystem, all capabilities dropped and a seccomp profile.
 checks that the Deployment runs `DATABASE_MODE=postgres` and takes
 `DATABASE_URL` only from the spark-ops Secret `money-database` (non-optional,
 no literal value, not in a ConfigMap), and that the manifests don't define
-that Secret or the `money-postgres` Service. A merge to `main` deploys right away, so a manifest
+any of the resources spark-ops owns: the Secret `money-database`, the Service
+`money-postgres` and the EndpointSlice `money-postgres-host`. A merge to `main` deploys right away, so a manifest
 that doesn't render must fail on the pull request. `deploy` needs this job.
 See [deployment.md](deployment.md).
 
