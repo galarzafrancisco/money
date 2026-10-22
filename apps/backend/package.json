@@ -15,6 +15,8 @@
     "migration:run": "npm run build && typeorm migration:run -d dist/database/data-source.js",
     "migration:revert": "npm run build && typeorm migration:revert -d dist/database/data-source.js",
     "valuations:run": "node dist/valuations/run-job.js",
+    "seed": "npm run build && node dist/seed/run-seed.js",
+    "seed:reset": "npm run build && node dist/seed/run-seed.js --reset",
     "auth:register-web-client": "npm run build && node dist/web-auth/register-web-client.js"
   },
   "devDependencies": {
