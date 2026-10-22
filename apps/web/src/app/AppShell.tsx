@@ -5,6 +5,7 @@ import { useSession } from './session';
 import './shell.css';
 
 const APP_NAV = [
+  { to: '/dashboard', label: 'Dashboard' },
   { to: '/accounts', label: 'Accounts' },
   { to: '/categories', label: 'Categories' },
 ];
@@ -34,7 +35,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div className="shell__backdrop" onClick={() => setDrawerOpen(false)} aria-hidden />
       <aside className="shell__sidebar" id="app-navigation">
         <div>
-          <NavLink to="/accounts" className="shell__brand">
+          <NavLink to="/dashboard" className="shell__brand">
             Money
           </NavLink>
           <div className="shell__tagline">Personal investment tracking</div>

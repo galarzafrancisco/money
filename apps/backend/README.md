@@ -15,6 +15,7 @@ calls.
 | [docs/data-model.md](docs/data-model.md) | Architecture, tables, how derived state is computed, edit and delete semantics |
 | [docs/api.md](docs/api.md) | REST endpoints, MCP tools, errors |
 | [docs/categories.md](docs/categories.md) | Subaccounts (buckets), user-defined categories, roll-up and category reports, FX policy |
+| [docs/dashboard.md](docs/dashboard.md) | Portfolio dashboard: asset classes (cash, shares, super), categories, ticker concentration, display currency and FX policy, valuation quality |
 | [docs/transfers.md](docs/transfers.md) | Transfers between accounts: linked legs, FX, atomicity, edits, deletion and reversal |
 | [docs/lot-selection.md](docs/lot-selection.md) | Purchase lots, specific identification and FIFO for sales, split allocations, precision, edit rules, UI contract |
 | [docs/web-auth.md](docs/web-auth.md) | Browser sign-in through Taico: BFF sessions, cookies, CSRF, renewal, sign-out, web app contract, Taico setup |

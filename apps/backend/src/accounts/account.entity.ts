@@ -1,7 +1,7 @@
 import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, PrimaryColumn, UpdateDateColumn } from 'typeorm';
 import { UserEntity } from '../users/user.entity';
 
-export const ACCOUNT_TYPES = ['INVESTMENT', 'CASH', 'OTHER'] as const;
+export const ACCOUNT_TYPES = ['INVESTMENT', 'CASH', 'SUPERANNUATION', 'OTHER'] as const;
 export type AccountType = (typeof ACCOUNT_TYPES)[number];
 
 @Entity('accounts')

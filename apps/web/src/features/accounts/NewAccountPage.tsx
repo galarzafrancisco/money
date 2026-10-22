@@ -24,7 +24,7 @@ import { PageHeader } from '../shared/PageHeader';
 import { ACCOUNT_TYPE_HELP, ACCOUNT_TYPE_LABELS, accountTree, flattenTree, useAccounts, useCreateAccount } from './data';
 
 const STEPS = ['Name and kind', 'Details', 'Review'];
-const TYPES: Account['type'][] = ['INVESTMENT', 'CASH', 'OTHER'];
+const TYPES: Account['type'][] = ['INVESTMENT', 'CASH', 'SUPERANNUATION', 'OTHER'];
 const MAX_DEPTH = 5;
 
 type Draft = {

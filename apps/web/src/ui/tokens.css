@@ -40,6 +40,9 @@
   --content-max: 72rem;
   --form-max: 40rem;
   --swatch-size: 0.875rem;
+  --bar-height: 1.25rem;
+  --chart-height: 10rem;
+  --chart-gap: 2px;
   --z-nav: 20;
   --z-drawer: 30;
   --duration: 120ms;
@@ -71,6 +74,17 @@
   --shadow-1: 0 1px 2px rgba(17, 24, 39, 0.06);
   --shadow-2: 0 4px 12px rgba(17, 24, 39, 0.1);
   --shadow-3: 0 12px 32px rgba(17, 24, 39, 0.18);
+  /* Categorical chart series, assigned in this fixed order (CVD-validated set) */
+  --chart-1: #2a78d6;
+  --chart-2: #eb6834;
+  --chart-3: #1baf7a;
+  --chart-4: #eda100;
+  --chart-5: #e87ba4;
+  --chart-6: #008300;
+  --chart-7: #6250d6;
+  --chart-8: #e34948;
+  --chart-other: #898781;
+  --chart-grid: #e1e0d9;
 }
 
 [data-theme='dark'] {
@@ -98,4 +112,14 @@
   --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-2: 0 4px 12px rgba(0, 0, 0, 0.45);
   --shadow-3: 0 12px 32px rgba(0, 0, 0, 0.55);
+  --chart-1: #3987e5;
+  --chart-2: #d95926;
+  --chart-3: #199e70;
+  --chart-4: #c98500;
+  --chart-5: #d55181;
+  --chart-6: #008300;
+  --chart-7: #9085e9;
+  --chart-8: #e66767;
+  --chart-other: #898781;
+  --chart-grid: #2c2c2a;
 }

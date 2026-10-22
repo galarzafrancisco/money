@@ -7,6 +7,8 @@ import { AccountsService } from '../accounts/accounts.service';
 import { createCategorySchema, holdingCategorySchema, updateCategorySchema } from '../categories/categories.schemas';
 import { CategoriesService } from '../categories/categories.service';
 import { DomainError } from '../common/errors';
+import { dashboardOptionsSchema } from '../dashboard/dashboard.schemas';
+import { DashboardService } from '../dashboard/dashboard.service';
 import { tickerSymbol } from '../common/validation';
 import { listLotsSchema } from '../lots/lots.schemas';
 import { LotsService } from '../lots/lots.service';
@@ -57,6 +59,7 @@ export class MoneyMcpServerFactory {
     private readonly transfers: TransfersService,
     private readonly valuations: ValuationsService,
     private readonly lots: LotsService,
+    private readonly dashboard: DashboardService,
   ) {}
 
   build(user: CurrentUser): McpServer {
@@ -160,6 +163,14 @@ export class MoneyMcpServerFactory {
       read,
       reportOptionsSchema.shape,
       (args) => this.reports.categoriesReport(user, args),
+    );
+
+    tool(
+      'get_dashboard',
+      'Portfolio overview: total tracked assets in displayCurrency (default AUD), split by asset class (cash, shares, super), category, top-level account and ticker (concentration as percentOfShares and percentOfTotal). Rates come from fxRates or the price provider; if any is missing, converted figures and percentages are null. Check valuation.status and warnings before relying on figures.',
+      read,
+      dashboardOptionsSchema.shape,
+      (args) => this.dashboard.dashboard(user, args),
     );
 
     tool(

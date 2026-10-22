@@ -19,6 +19,7 @@ export type FakeClient = {
   prices: Resource;
   users: Resource;
   valuations: Resource;
+  dashboard: Resource;
 };
 
 /** A stand-in for the generated client: every method is a vi.fn with an empty default */
@@ -44,6 +45,7 @@ export function fakeClient(): FakeClient {
     prices: { getQuote: vi.fn() },
     users: { getMe: vi.fn() },
     valuations: { getValuationHistory: vi.fn(), getValuationStatus: vi.fn(), requestValuationRecompute: vi.fn() },
+    dashboard: { getDashboard: vi.fn().mockReturnValue(new Promise(() => {})) },
   };
 }
 
