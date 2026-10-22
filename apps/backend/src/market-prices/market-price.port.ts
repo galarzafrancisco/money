@@ -14,6 +14,23 @@ export type Quote = {
   isMock: boolean;
 };
 
+/**
+ * The latest exchange rate between two currencies: `rate` units of `to` per
+ * one unit of `from`. A market price like any other: read only, with its
+ * source and time.
+ */
+export type FxQuote = {
+  from: string;
+  to: string;
+  /** Decimal string */
+  rate: string;
+  /** When the provider says the rate is from (ISO 8601) */
+  asOf: string;
+  source: string;
+  /** Made-up development data; never rely on it */
+  isMock: boolean;
+};
+
 /** The official closing price of one trading session */
 export type DailyClose = {
   /** The session's date in the exchange's time zone (YYYY-MM-DD) */
@@ -51,6 +68,12 @@ export interface MarketPriceProvider {
    * Throws (UpstreamError) when the provider cannot be reached.
    */
   getDailyCloses(symbol: string, range: { from: string; to: string }, now: Date): Promise<DailyCloseSeries | null>;
+  /**
+   * The latest rate for converting `from` into `to` (both ISO 4217 codes),
+   * or null when the provider does not know the pair. Throws (UpstreamError)
+   * when the provider cannot be reached.
+   */
+  getFxRate(from: string, to: string): Promise<FxQuote | null>;
 }
 
 export const MARKET_PRICE_PROVIDER = Symbol('MARKET_PRICE_PROVIDER');

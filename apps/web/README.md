@@ -29,6 +29,7 @@ src/
 ├── app/        composition: session module, API client provider, shell, routes, error boundary
 ├── ui/         primitives and design tokens (no feature or backend imports)
 ├── features/
+│   ├── dashboard/     portfolio overview, categories and share concentration (GET /api/dashboard)
 │   ├── accounts/      list, creation wizard, account layout, overview, subaccounts, settings
 │   ├── transactions/  history, detail, lots, record-activity page and forms (incl. LotPicker)
 │   ├── transfers/     transfer list and form
@@ -49,12 +50,13 @@ src/
   the REST resource, as `web-auth.md` explains. The browser holds only the
   HttpOnly cookie.
 - **Navigation.**
-  - The shell owns app-level navigation: Accounts and Categories, in a sidebar
+  - The shell owns app-level navigation: Dashboard (the home page), Accounts and Categories, in a sidebar
     on desktop and a drawer on mobile.
   - An account declares its sections with `<InAppNav>`. They show as tabs on
     desktop and as a bottom bar on mobile.
   - Every section, filter and record type is in the URL, e.g.
-    `/accounts/:id/record?type=SELL`.
+    `/accounts/:id/record?type=SELL`, and the dashboard's display currency and
+    manual rates, e.g. `/dashboard/shares?currency=USD&rates=EUR:1.6`.
 - **Refreshing.** Every write invalidates what it changes: portfolio,
   transactions, lots, transfers and the accounts report of each affected
   account. Balances and holdings therefore refresh after each recorded
@@ -85,6 +87,15 @@ src/
   - Every amount shows its currency.
   - Per-currency totals are listed line by line and never added together.
   - A parent's figure is its rolled-up total, labelled "incl. subaccounts".
+  - The dashboard shows a single converted figure only when the backend
+    returned one (`converted`). If a rate is missing, it lists amounts per
+    currency, hides percentages and charts, and asks for a manual rate. That
+    rate is only a view setting in the URL and changes no records.
+- **Charts.** Allocation bars take their widths from the backend's percentage
+  strings. The share trend line uses numbers only for plot coordinates, and the
+  exact figures are shown as text. Series colours are `--chart-1…8` tokens in
+  fixed order, validated for colour-vision deficiency. A category's own colour
+  wins. Every chart has a legend or caption and a table with the same figures.
 - **Provenance and tax.** Mock prices carry a "Mock price" badge, a missing
   price shows its error, and holdings valued at cost show the report's
   warnings. The backend's notes ("not tax advice", trade currency, no AUD
@@ -114,8 +125,10 @@ The backend checks separately that real responses match the spec
 - **Editing.** Records can be viewed and deleted, but not edited yet
   (`PATCH /api/transactions/:id` and `/api/transfers/:id` exist). To correct
   one, delete it and record it again.
-- **Not covered here.** Valuation history charts and category reports belong
-  to the dashboards task (1fcae95c).
+- **Dashboard charts are deliberately simple.** There is an allocation bar per
+  breakdown (always next to a table) and a share-holdings trend line. There is
+  no history per asset class or category: daily valuations cover share
+  holdings only.
 - **Not tried end to end.** No live sign-in has been done against Taico. The
   `money-api` registry entry and `SESSION_ENCRYPTION_KEY` are still
   outstanding (see docs/deployment.md).

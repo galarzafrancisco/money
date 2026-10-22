@@ -7,7 +7,7 @@ import { ApiErrorCallout } from '../shared/ApiErrorCallout';
 import { useAccountContext } from './AccountLayout';
 import { ACCOUNT_TYPE_LABELS, accountTree, descendantIds, flattenTree, useDeleteAccount, useUpdateAccount } from './data';
 
-const TYPES: Account['type'][] = ['INVESTMENT', 'CASH', 'OTHER'];
+const TYPES: Account['type'][] = ['INVESTMENT', 'CASH', 'SUPERANNUATION', 'OTHER'];
 
 /** Edit an account (name, kind, parent, category) or delete it */
 export function AccountSettings() {

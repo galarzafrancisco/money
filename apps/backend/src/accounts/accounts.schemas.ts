@@ -5,7 +5,7 @@ import { ACCOUNT_TYPES } from './account.entity';
 /** Shared by REST bodies and MCP tool inputs */
 export const createAccountSchema = z.object({
   name: z.string().trim().min(1).max(120).describe('Account name, unique among accounts with the same parent (case-insensitive), e.g. "Stake US shares" or "Term Deposit 1"'),
-  type: z.enum(ACCOUNT_TYPES).default('INVESTMENT').describe('INVESTMENT (buys and sells shares), CASH or OTHER'),
+  type: z.enum(ACCOUNT_TYPES).default('INVESTMENT').describe('INVESTMENT (buys and sells shares), CASH, SUPERANNUATION (retirement savings: everything in it, including subaccounts, counts as super on the dashboard) or OTHER'),
   reportingCurrency: currencyCode.default('AUD').describe('Currency the account is usually reported in. Cash in other currencies can still be held.'),
   description: z.string().trim().max(2000).nullish().describe('Optional free-text notes'),
   parentAccountId: z
@@ -19,7 +19,7 @@ export type CreateAccountInput = z.input<typeof createAccountSchema>;
 export const updateAccountSchema = z
   .object({
     name: createAccountSchema.shape.name.optional(),
-    type: z.enum(ACCOUNT_TYPES).optional().describe('INVESTMENT, CASH or OTHER'),
+    type: z.enum(ACCOUNT_TYPES).optional().describe('INVESTMENT, CASH, SUPERANNUATION or OTHER'),
     reportingCurrency: currencyCode.optional(),
     description: z.string().trim().max(2000).nullish().describe('Free-text notes; null clears them'),
     parentAccountId: z

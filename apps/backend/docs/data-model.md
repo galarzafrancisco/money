@@ -23,7 +23,7 @@ for money.
 | `name` | Unique among siblings, case-insensitive (`UQ_accounts_user_parent_name` on `(user_id, coalesce(parent_account_id, nil-uuid), lower(name))`) |
 | `parent_account_id` | The account this is a subaccount (bucket) of, or null. Composite FK `(parent_account_id, user_id) → accounts(id, user_id)`, so it is always the same user's account. At most 5 levels; no cycles (see [categories.md](categories.md)). |
 | `category_id` | The account's own category, or null (inherits its parent's). Composite FK to `categories(id, user_id)`, `ON DELETE SET NULL (category_id)` (needs Postgres 15+). |
-| `type` | `INVESTMENT` (the main case), `CASH` or `OTHER` |
+| `type` | `INVESTMENT` (the main case), `CASH`, `SUPERANNUATION` (retirement savings: everything in it and its subaccounts is the dashboard's "super" asset class, see [dashboard.md](dashboard.md)) or `OTHER`. Named CHECK `CHK_accounts_type`. |
 | `reporting_currency` | The currency the account is usually reported in. Cash can be held in any currency. |
 | `description` | Free text |
 

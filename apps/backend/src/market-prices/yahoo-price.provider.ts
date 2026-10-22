@@ -1,7 +1,7 @@
 import { dec, fmt } from '../common/decimal';
 import { UpstreamError } from '../common/errors';
 import { addDays, dateInZone, isValidTimeZone, zonedParts, zonedTimeToUtc } from './market-calendar';
-import type { DailyClose, DailyCloseSeries, MarketPriceProvider, Quote } from './market-price.port';
+import type { DailyClose, DailyCloseSeries, FxQuote, MarketPriceProvider, Quote } from './market-price.port';
 
 /**
  * Yahoo Finance's chart endpoint. Free and keyless, covers the ASX (".AX")
@@ -33,6 +33,22 @@ export class YahooPriceProvider implements MarketPriceProvider {
       // Yahoo returns a float; keep it as written, no float arithmetic on it
       price,
       currency,
+      asOf: new Date((meta.regularMarketTime ?? Date.now() / 1000) * 1000).toISOString(),
+      source: this.name,
+      isMock: false,
+    };
+  }
+
+  /** Yahoo lists currency pairs as e.g. "AUDUSD=X": USD per 1 AUD */
+  async getFxRate(from: string, to: string): Promise<FxQuote | null> {
+    const pair = `${from.toUpperCase()}${to.toUpperCase()}=X`;
+    const body = await this.fetchChart(pair, 'range=1d&interval=1d');
+    const meta = body?.chart?.result?.[0]?.meta;
+    if (!meta || typeof meta.regularMarketPrice !== 'number' || !(meta.regularMarketPrice > 0)) return null;
+    return {
+      from: from.toUpperCase(),
+      to: to.toUpperCase(),
+      rate: String(meta.regularMarketPrice),
       asOf: new Date((meta.regularMarketTime ?? Date.now() / 1000) * 1000).toISOString(),
       source: this.name,
       isMock: false,

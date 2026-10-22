@@ -10,6 +10,7 @@ import { MoneyUserGuard } from './auth/user.guard';
 import { CategoriesRepository } from './categories/categories.repository';
 import { CategoriesService } from './categories/categories.service';
 import { DomainErrorFilter } from './common/domain-error.filter';
+import { DashboardService } from './dashboard/dashboard.service';
 import { APP_CONFIG, type AppConfig } from './config/env.config';
 import { dataSourceOptions } from './database/data-source-options';
 import { UnitOfWork } from './database/unit-of-work';
@@ -85,6 +86,7 @@ export class AppModule implements NestModule {
         CategoriesRepository,
         CategoriesService,
         ReportsService,
+        DashboardService,
         TransactionsRepository,
         TransactionsService,
         LotsService,

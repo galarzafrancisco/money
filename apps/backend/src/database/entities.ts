@@ -10,6 +10,7 @@ import { Transfers1761200000000 } from './migrations/1761200000000-Transfers';
 import { DailyValuations1761300000000 } from './migrations/1761300000000-DailyValuations';
 import { SaleLotAllocations1761400000000 } from './migrations/1761400000000-SaleLotAllocations';
 import { WebSessions1761500000000 } from './migrations/1761500000000-WebSessions';
+import { SuperannuationAccounts1761600000000 } from './migrations/1761600000000-SuperannuationAccounts';
 
 export const ENTITIES = [UserEntity, AccountEntity, TransactionEntity, SaleLotAllocationEntity, CategoryEntity, HoldingCategoryEntity, TransferEntity];
 export const MIGRATIONS = [
@@ -19,4 +20,5 @@ export const MIGRATIONS = [
   DailyValuations1761300000000,
   SaleLotAllocations1761400000000,
   WebSessions1761500000000,
+  SuperannuationAccounts1761600000000,
 ];

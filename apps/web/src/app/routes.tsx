@@ -6,6 +6,10 @@ import { AccountsPage } from '../features/accounts/AccountsPage';
 import { AccountSubaccounts } from '../features/accounts/AccountSubaccounts';
 import { NewAccountPage } from '../features/accounts/NewAccountPage';
 import { CategoriesPage } from '../features/categories/CategoriesPage';
+import { DashboardCategories } from '../features/dashboard/DashboardCategories';
+import { DashboardLayout } from '../features/dashboard/DashboardLayout';
+import { DashboardOverview } from '../features/dashboard/DashboardOverview';
+import { DashboardShares } from '../features/dashboard/DashboardShares';
 import { AccountLots } from '../features/transactions/AccountLots';
 import { AccountTransactions } from '../features/transactions/AccountTransactions';
 import { RecordActivityPage } from '../features/transactions/RecordActivityPage';
@@ -17,7 +21,12 @@ import { ButtonLink, EmptyState } from '../ui';
 export function AppRoutes() {
   return (
     <Routes>
-      <Route path="/" element={<Navigate to="/accounts" replace />} />
+      <Route path="/" element={<Navigate to="/dashboard" replace />} />
+      <Route path="/dashboard" element={<DashboardLayout />}>
+        <Route index element={<DashboardOverview />} />
+        <Route path="categories" element={<DashboardCategories />} />
+        <Route path="shares" element={<DashboardShares />} />
+      </Route>
       <Route path="/accounts" element={<AccountsPage />} />
       <Route path="/accounts/new" element={<NewAccountPage />} />
       <Route path="/accounts/:accountId" element={<AccountLayout />}>

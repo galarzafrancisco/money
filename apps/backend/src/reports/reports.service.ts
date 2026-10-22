@@ -102,7 +102,7 @@ export class ReportsService {
   ) {}
 
   async accountsReport(user: CurrentUser, input: ReportOptionsInput = {}): Promise<AccountsReport> {
-    const ctx = await this.load(user, parseInput(reportOptionsSchema, input));
+    const ctx = await this.valuationContext(user, parseInput(reportOptionsSchema, input));
     const tree = buildAccountTree(ctx.allAccounts, ctx.items, ctx.rootId ? [ctx.rootId] : undefined);
     const toNode = (node: AccountTreeNode<AccountEntity>): AccountReportNode => ({
       id: node.account.id,
@@ -129,7 +129,7 @@ export class ReportsService {
   }
 
   async categoriesReport(user: CurrentUser, input: ReportOptionsInput = {}): Promise<CategoriesReport> {
-    const ctx = await this.load(user, parseInput(reportOptionsSchema, input));
+    const ctx = await this.valuationContext(user, parseInput(reportOptionsSchema, input));
     const groups = partitionByCategory(ctx.items, ctx.byId, ctx.holdingCategories);
     const ordered: (CategoryEntity | null)[] = [...ctx.categoryList, null];
     return {
@@ -145,8 +145,12 @@ export class ReportsService {
     };
   }
 
-  /** Loads everything both reports need and derives the valuation items */
-  private async load(user: CurrentUser, options: ReportOptions) {
+  /**
+   * Loads everything the reports (and the dashboard) need and derives the
+   * valuation items: one per cash balance and one per holding of each
+   * account in scope, so each is counted exactly once.
+   */
+  async valuationContext(user: CurrentUser, options: ReportOptions) {
     const [accounts, categoryList, holdingRows, rows] = await Promise.all([
       this.accounts.list(user.id),
       this.categories.list(user.id),
@@ -263,6 +267,6 @@ export class ReportsService {
       totals: totalsOf(items, fx),
       warnings,
     };
-    return { allAccounts: accounts, byId, items, fx, rootId, categoryList, holdingCategories, categoryRef, itemView, envelope };
+    return { allAccounts: accounts, byId, items, fx, rootId, categoryList, holdingCategories, categoryRef, itemView, pathOf, envelope };
   }
 }

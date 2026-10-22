@@ -1,6 +1,7 @@
 import type { Type } from '@nestjs/common';
 import { AccountsController } from '../accounts/accounts.controller';
 import { CategoriesController } from '../categories/categories.controller';
+import { DashboardController } from '../dashboard/dashboard.controller';
 import { LotsController } from '../lots/lots.controller';
 import { PortfolioController } from '../portfolio/portfolio.controller';
 import { ReportsController } from '../reports/reports.controller';
@@ -19,6 +20,7 @@ export const REST_CONTROLLERS: readonly Type[] = [
   PortfolioController,
   CategoriesController,
   ReportsController,
+  DashboardController,
   TransfersController,
   ValuationsController,
 ];

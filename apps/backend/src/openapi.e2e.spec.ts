@@ -130,6 +130,8 @@ describe('REST responses match the OpenAPI response schemas', () => {
 
     await call('get', '/api/reports/accounts?valuation=cost&baseCurrency=AUD&fxRates=USD:1.5');
     await call('get', '/api/reports/categories?valuation=market');
+    await call('get', '/api/dashboard?displayCurrency=USD');
+    await call('get', '/api/dashboard?displayCurrency=AUD&fxRates=USD:1.5');
     await call('get', '/api/valuations/status');
     await call('post', '/api/valuations/recompute', { fromDate: '2024-01-01' });
     await call('get', '/api/valuations?fromDate=2024-01-01&toDate=2024-01-10');

@@ -1,0 +1,184 @@
+import type { Dashboard } from '@money/client';
+import { Link } from 'react-router';
+import { AllocationBar, Amount, Badge, Card, Heading, Loading, Stack, Table, Text, TrendLine, type Column } from '../../ui';
+import { ACCOUNT_TYPE_LABELS } from '../accounts/data';
+import { ApiErrorCallout } from '../shared/ApiErrorCallout';
+import { CurrencyLines } from '../shared/CurrencyTotals';
+import { useDashboardContext } from './DashboardLayout';
+import { useShareHistory } from './data';
+import { ConvertedAmount, Percent, allPercents } from './parts';
+
+type AssetClassRow = Dashboard['assetClasses'][number];
+type AccountRow = Dashboard['accounts'][number];
+
+export const ASSET_CLASS_LABELS: Record<AssetClassRow['assetClass'], string> = { cash: 'Cash', shares: 'Shares', super: 'Super (retirement)' };
+const ASSET_CLASS_HELP: Record<AssetClassRow['assetClass'], string> = {
+  cash: 'Cash in bank, savings and brokerage accounts',
+  shares: 'Share holdings outside super',
+  super: 'Everything in super accounts and their subaccounts',
+};
+
+/** Total tracked assets, split by asset class and top-level account, and the share-holdings trend */
+export function DashboardOverview() {
+  const { dashboard } = useDashboardContext();
+  const { total } = dashboard;
+
+  const classColumns: Column<AssetClassRow>[] = [
+    {
+      key: 'class',
+      header: 'Asset class',
+      render: (row) => (
+        <Stack gap={1}>
+          <span>{ASSET_CLASS_LABELS[row.assetClass]}</span>
+          <Text size="xs" tone="muted" as="span">
+            {ASSET_CLASS_HELP[row.assetClass]}
+          </Text>
+          {row.accounts.length > 0 && (
+            <details>
+              <summary>
+                <Text size="sm" as="span">
+                  {row.accounts.length} account(s)
+                </Text>
+              </summary>
+              <ul>
+                {row.accounts.map((a) => (
+                  <li key={a.accountId}>
+                    <Link to={`/accounts/${a.accountId}`}>{a.accountPath.join(' / ')}</Link> <ConvertedAmount totals={a.totals} />{' '}
+                    {a.percentOfClass !== null && (
+                      <Text size="xs" tone="muted" as="span">
+                        (<Amount value={a.percentOfClass} kind="percent" /> of class)
+                      </Text>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </Stack>
+      ),
+    },
+    { key: 'value', header: 'Value', numeric: true, render: (row) => <ConvertedAmount totals={row.totals} /> },
+    { key: 'percent', header: '% of total', numeric: true, render: (row) => <Percent value={row.percentOfTotal} /> },
+  ];
+
+  const accountColumns: Column<AccountRow>[] = [
+    {
+      key: 'name',
+      header: 'Account',
+      render: (row) => (
+        <span>
+          <Link to={`/accounts/${row.id}`}>{row.name}</Link> <Badge>{ACCOUNT_TYPE_LABELS[row.type]}</Badge>
+          {row.subaccounts > 0 && (
+            <Text size="xs" tone="muted" as="span">
+              {' '}
+              incl. {row.subaccounts} subaccount(s)
+            </Text>
+          )}
+        </span>
+      ),
+    },
+    { key: 'value', header: 'Value', numeric: true, render: (row) => <ConvertedAmount totals={row.totals} /> },
+    { key: 'percent', header: '% of total', numeric: true, render: (row) => <Percent value={row.percentOfTotal} /> },
+  ];
+
+  return (
+    <Stack gap={4}>
+      <Card title="Total tracked assets">
+          <Stack gap={2}>
+            {total.converted ? (
+              <Heading level={2}>
+                <Amount value={total.converted.total} currency={total.converted.baseCurrency} />
+              </Heading>
+            ) : (
+              <Text tone="warning" size="sm">
+                Not converted to {dashboard.displayCurrency}: an exchange rate is missing. Per currency:
+              </Text>
+            )}
+            <Text size="sm" tone="muted" as="div">
+              By currency held:
+            </Text>
+            <CurrencyLines lines={total.byCurrency.map((t) => ({ currency: t.currency, amount: t.total }))} />
+          </Stack>
+      </Card>
+
+      <Card title="By asset class">
+        <Stack gap={3}>
+          {allPercents(dashboard.assetClasses, (c) => c.percentOfTotal) ? (
+            <AllocationBar
+              label="Asset classes"
+              segments={dashboard.assetClasses.map((c) => ({ key: c.assetClass, name: ASSET_CLASS_LABELS[c.assetClass], label: ASSET_CLASS_LABELS[c.assetClass], percent: c.percentOfTotal! }))}
+            />
+          ) : null}
+          <Table label="Asset classes" columns={classColumns} rows={dashboard.assetClasses} rowKey={(r) => r.assetClass} />
+        </Stack>
+      </Card>
+
+      <Card title="By account" flush>
+        <Table
+          label="Top-level accounts"
+          columns={accountColumns}
+          rows={dashboard.accounts}
+          rowKey={(r) => r.id}
+          caption="Each account includes its subaccounts. Rows add up to the total."
+        />
+      </Card>
+
+      <ShareHistory dashboard={dashboard} />
+    </Stack>
+  );
+}
+
+/** Daily share-holdings value from the valuation history: not cash, not total wealth */
+function ShareHistory({ dashboard }: { dashboard: Dashboard }) {
+  const history = useShareHistory(dashboard);
+  const title = 'Share holdings over time';
+  if (!dashboard.fx.complete) {
+    return (
+      <Card title={title}>
+        <Text size="sm" tone="muted">
+          Needs an exchange rate for every currency to chart in {dashboard.displayCurrency}.
+        </Text>
+      </Card>
+    );
+  }
+  if (history.isPending) return <Card title={title}><Loading label="Loading history…" /></Card>;
+  if (history.isError) return <Card title={title}><ApiErrorCallout error={history.error} title="History is unavailable right now" /></Card>;
+  const days = history.data.days.filter((d) => d.totals.converted);
+  if (days.length < 2) {
+    return (
+      <Card title={title}>
+        <Text size="sm" tone="muted">
+          Not enough daily valuations yet. They are worked out after each market close.
+        </Text>
+      </Card>
+    );
+  }
+  const first = days[0];
+  const last = days[days.length - 1];
+  const partial = days.filter((d) => !d.complete).length;
+  return (
+    <Card title={title}>
+      <Stack gap={2}>
+        <TrendLine
+          label={`Share holdings value in ${dashboard.displayCurrency} from ${first.date} to ${last.date}`}
+          points={days.map((d) => ({
+            key: d.date,
+            value: Number(d.totals.converted!.marketValue),
+            title: `${d.date}: ${d.totals.converted!.marketValue} ${dashboard.displayCurrency}${d.complete ? '' : ' (partial)'}${d.includesMockPrices ? ' (mock prices)' : ''}`,
+          }))}
+        />
+        <Text size="sm">
+          {first.date}: <Amount value={first.totals.converted!.marketValue} currency={dashboard.displayCurrency} /> → {last.date}:{' '}
+          <Amount value={last.totals.converted!.marketValue} currency={dashboard.displayCurrency} />
+        </Text>
+        <Text size="xs" tone="muted">
+          Listed share holdings in every account (including any held in super) at daily closing prices. Cash, including super balances recorded as cash, is
+          not included, so this is not your total wealth. Converted at today's rates for every day, not historical
+          exchange rates.
+          {partial > 0 && ` ${partial} day(s) are partial: some holdings had no closing price.`}
+          {days.some((d) => d.includesMockPrices) && ' Includes mock prices.'}
+        </Text>
+      </Stack>
+    </Card>
+  );
+}

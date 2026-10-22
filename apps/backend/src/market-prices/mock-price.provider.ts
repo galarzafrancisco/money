@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { UpstreamError } from '../common/errors';
 import { dec, fmt } from '../common/decimal';
 import { dateRange, isWeekend, zonedTimeToUtc } from './market-calendar';
-import type { DailyClose, DailyCloseSeries, MarketPriceProvider, Quote } from './market-price.port';
+import type { DailyClose, DailyCloseSeries, FxQuote, MarketPriceProvider, Quote } from './market-price.port';
 
 /**
  * MOCK prices, for development and tests. A symbol's price is derived from a
@@ -13,6 +13,10 @@ import type { DailyClose, DailyCloseSeries, MarketPriceProvider, Quote } from '.
  * Daily closes are just as made up: one per weekday (no holidays unless a
  * test adds some), varying a little around the symbol's base price, final
  * once the exchange's scheduled close has passed in its time zone.
+ *
+ * FX rates are made up too: each currency has a fixed mock value in USD
+ * (AUD 0.65, EUR 1.08, …) and a pair's rate is the ratio, unless a test sets
+ * one. Unknown currencies have no rate.
  */
 export class MockPriceProvider implements MarketPriceProvider {
   readonly name = 'mock';
@@ -20,6 +24,7 @@ export class MockPriceProvider implements MarketPriceProvider {
   private readonly closeOverrides = new Map<string, string>();
   private readonly holidays = new Set<string>();
   private readonly failing = new Set<string>();
+  private readonly fxOverrides = new Map<string, string | null>();
   /** Calls to getDailyCloses, for tests */
   dailyCloseCalls = 0;
 
@@ -43,7 +48,13 @@ export class MockPriceProvider implements MarketPriceProvider {
     else this.failing.delete(symbol.toUpperCase());
   }
 
+  /** Sets the rate for from→to (units of `to` per `from`); null makes the pair unavailable */
+  setFxRate(from: string, to: string, rate: string | null): void {
+    this.fxOverrides.set(`${from.toUpperCase()}|${to.toUpperCase()}`, rate);
+  }
+
   clear(): void {
+    this.fxOverrides.clear();
     this.overrides.clear();
     this.closeOverrides.clear();
     this.holidays.clear();
@@ -62,6 +73,19 @@ export class MockPriceProvider implements MarketPriceProvider {
       source: this.name,
       isMock: true,
     };
+  }
+
+  async getFxRate(from: string, to: string): Promise<FxQuote | null> {
+    const key = `${from.toUpperCase()}|${to.toUpperCase()}`;
+    if (this.failing.has('*')) throw new UpstreamError(`Mock FX rate ${from}→${to} is unavailable (simulated provider failure)`);
+    let rate: string | null | undefined = this.fxOverrides.get(key);
+    if (rate === undefined) {
+      const fromUsd = MOCK_USD_VALUE[from.toUpperCase()];
+      const toUsd = MOCK_USD_VALUE[to.toUpperCase()];
+      rate = fromUsd && toUsd ? fmt(dec(fromUsd).dividedBy(toUsd).toDecimalPlaces(6)) : null;
+    }
+    if (rate === null) return null;
+    return { from: from.toUpperCase(), to: to.toUpperCase(), rate, asOf: new Date().toISOString(), source: this.name, isMock: true };
   }
 
   async getDailyCloses(symbol: string, range: { from: string; to: string }, now: Date): Promise<DailyCloseSeries> {
@@ -90,6 +114,9 @@ export class MockPriceProvider implements MarketPriceProvider {
     };
   }
 }
+
+/** Made-up value of one unit of each currency in USD, for mock FX rates */
+const MOCK_USD_VALUE: Record<string, string> = { USD: '1', AUD: '0.65', EUR: '1.08', GBP: '1.27', CAD: '0.73', NZD: '0.6', JPY: '0.0067' };
 
 function hashOf(value: string): number {
   return createHash('sha256').update(value).digest().readUInt32BE(0);

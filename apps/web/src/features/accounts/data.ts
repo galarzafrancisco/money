@@ -35,7 +35,7 @@ export function useCreateAccount() {
     mutationFn: (body: CreateAccountRequest) => run((c) => c.accounts.createAccount({ body })),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.accounts });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.accountsReport });
+      void queryClient.invalidateQueries({ queryKey: ['reports'] });
     },
   });
 }
@@ -48,7 +48,7 @@ export function useUpdateAccount(accountId: string) {
     onSuccess: (account: Account) => {
       queryClient.setQueryData(queryKeys.account(accountId), account);
       void queryClient.invalidateQueries({ queryKey: queryKeys.accounts });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.accountsReport });
+      void queryClient.invalidateQueries({ queryKey: ['reports'] });
       void queryClient.invalidateQueries({ queryKey: queryKeys.portfolio(accountId) });
     },
   });
@@ -62,7 +62,7 @@ export function useDeleteAccount(accountId: string) {
     onSuccess: () => {
       queryClient.removeQueries({ queryKey: queryKeys.account(accountId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.accounts });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.accountsReport });
+      void queryClient.invalidateQueries({ queryKey: ['reports'] });
       void queryClient.invalidateQueries({ queryKey: queryKeys.transfers() });
     },
   });
@@ -123,11 +123,14 @@ export function descendantIds(accountId: string, accounts: readonly Account[]): 
 export const ACCOUNT_TYPE_LABELS: Record<Account['type'], string> = {
   INVESTMENT: 'Investment',
   CASH: 'Cash',
+  SUPERANNUATION: 'Super',
   OTHER: 'Other',
 };
 
 export const ACCOUNT_TYPE_HELP: Record<Account['type'], string> = {
   INVESTMENT: 'A brokerage or share account: record buys, sells and dividends as well as cash.',
   CASH: 'A bank or savings account, or a bucket of cash within one.',
+  SUPERANNUATION:
+    'A super (retirement) fund. Record its balance as cash (contributions as deposits, returns and fees as deposits or withdrawals), or buys if it holds listed shares. Everything in it, including subaccounts, counts as super on the dashboard.',
   OTHER: 'Anything else you want to track, such as a term deposit.',
 };
