@@ -36,6 +36,8 @@ export type ItemView = {
   accountId: string;
   /** Account names from the top-level account down, e.g. ["Up!", "Emergency Fund"] */
   accountPath: string[];
+  /** Where the account comes from: recorded by hand, or imported from Up (a snapshot balance) */
+  source: 'manual' | 'up';
   kind: 'cash' | 'holding';
   symbol: string | null;
   currency: string;
@@ -52,6 +54,7 @@ export type AccountReportNode = {
   id: string;
   name: string;
   type: AccountEntity['type'];
+  source: 'manual' | 'up';
   parentAccountId: string | null;
   level: number;
   /** The account's own category (null = inherits) */
@@ -111,6 +114,7 @@ export class ReportsService {
       id: node.account.id,
       name: node.account.name,
       type: node.account.type,
+      source: ctx.sourceOf(node.account.id),
       parentAccountId: node.account.parentAccountId,
       level: node.level,
       categoryId: node.account.categoryId,
@@ -164,8 +168,12 @@ export class ReportsService {
     // Imported Up accounts are top-level cash accounts whose balance is the
     // one Up last reported. Hidden ones stay out of the default view but are
     // always reachable by ID.
-    const upAsAccounts = upAccounts.filter((u) => options.rootAccountId !== undefined || options.visibility === 'all' || (options.visibility === 'visible') === u.visible).map(upToAccount);
-    const upBalances = new Map(upAccounts.map((u) => [u.id, u]));
+    // Accounts Up stopped listing keep their last balance but are stale, so they
+    // are left out everywhere (as account groups do), even by ID.
+    const upInScope = upAccounts.filter((u) => !u.removedAt && (options.rootAccountId !== undefined || options.visibility === 'all' || (options.visibility === 'visible') === u.visible));
+    const upAsAccounts = upInScope.map(upToAccount);
+    const upBalances = new Map(upInScope.map((u) => [u.id, u]));
+    const sourceOf = (accountId: string): 'manual' | 'up' => (upBalances.has(accountId) ? 'up' : 'manual');
     const accounts = [...manualAccounts, ...upAsAccounts];
     const byId = new Map(accounts.map((a) => [a.id, a]));
 
@@ -263,6 +271,7 @@ export class ReportsService {
       return {
         accountId: item.accountId,
         accountPath: pathOf(item.accountId),
+        source: sourceOf(item.accountId),
         kind: item.kind,
         symbol: item.symbol,
         currency: item.currency,
@@ -285,7 +294,7 @@ export class ReportsService {
       totals: totalsOf(items, fx),
       warnings,
     };
-    return { allAccounts: accounts, byId, items, fx, rootId, categoryList, holdingCategories, categoryRef, itemView, pathOf, envelope };
+    return { allAccounts: accounts, byId, items, fx, rootId, categoryList, holdingCategories, categoryRef, itemView, pathOf, sourceOf, envelope };
   }
 }
 

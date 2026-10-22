@@ -21,6 +21,7 @@ export const reportItemSchema = apiSchema(
   z.object({
     accountId: z.string(),
     accountPath: z.array(z.string()),
+    source: z.enum(['manual', 'up']).describe('manual = recorded in Money; up = imported snapshot balance from Up'),
     kind: z.enum(['cash', 'holding']),
     symbol: z.string().nullable(),
     currency: z.string(),
@@ -38,6 +39,7 @@ type AccountReportNode = {
   id: string;
   name: string;
   type: (typeof ACCOUNT_TYPES)[number];
+  source: 'manual' | 'up';
   parentAccountId: string | null;
   level: number;
   categoryId: string | null;
@@ -54,6 +56,7 @@ export const accountReportNodeSchema: z.ZodType<AccountReportNode> = apiSchema(
     id: z.string(),
     name: z.string(),
     type: z.enum(ACCOUNT_TYPES),
+    source: z.enum(['manual', 'up']).describe('manual = recorded in Money; up = imported snapshot balance from Up'),
     parentAccountId: z.string().nullable(),
     level: z.number().int(),
     categoryId: z.string().nullable(),

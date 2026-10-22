@@ -488,6 +488,19 @@ describe('Up! read-only import (mock provider)', () => {
       const only = (await as(user).get(`/api/reports/accounts?valuation=cost&rootAccountId=${manual.id}`).expect(200)).body;
       expect(aud(only.totals)).toBe(100);
 
+      // Provenance: imported accounts say so, manual ones too
+      expect(Object.fromEntries(all.accounts.map((a: any) => [a.id, a.source]))).toMatchObject({ [manual.id]: 'manual', [shown.id]: 'up' });
+      expect(def.accounts.find((a: any) => a.id === shown.id).items.every((i: any) => i.source === 'up')).toBe(true);
+      expect(cats.categories.flatMap((c: any) => c.items).filter((i: any) => i.source === 'up').length).toBeGreaterThan(0);
+
+      // An account Up stopped listing keeps its last balance but drops out of reports, even by ID
+      const before = aud(all.totals);
+      await t.app.get(DataSource).query(`UPDATE up_accounts SET removed_at = now() WHERE id = $1`, [shown.id]);
+      const afterRemoval = (await as(user).get('/api/reports/accounts?valuation=cost&visibility=all').expect(200)).body;
+      expect(afterRemoval.accounts.map((a: any) => a.id)).not.toContain(shown.id);
+      expect(aud(afterRemoval.totals)).toBeCloseTo(before - sum([shown]), 2);
+      await as(user).get(`/api/reports/accounts?rootAccountId=${shown.id}`).expect(404);
+
       // Another user cannot reach these
       const other = await t.token({ subject: 'up-reports-other' });
       await as(other).get(`/api/reports/accounts?rootAccountId=${others[0].id}`).expect(404);
