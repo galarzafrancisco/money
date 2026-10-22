@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { decimalSign, formatDecimal } from '../lib/decimal';
+import { decimalSign, formatCompactDecimal, formatDecimal } from '../lib/decimal';
 import './data.css';
 
 export type Column<T> = {
@@ -49,8 +49,13 @@ export function Table<T>({ columns, rows, rowKey, caption, footer, label }: { co
  */
 export function Amount({ value, currency, signed = false, kind = 'money' }: { value: string | null | undefined; currency?: string | null; signed?: boolean; kind?: 'money' | 'quantity' | 'rate' | 'percent' }) {
   if (value === null || value === undefined) return <span className="amount">—</span>;
-  const formatted =
-    kind === 'money' ? formatDecimal(value, { minFraction: 2 }) : kind === 'percent' ? `${formatDecimal(value, { maxFraction: 2 })}%` : formatDecimal(value);
+  // Max 2 decimals everywhere. Quantities and rates that would round to zero
+  // (e.g. 0.00012 BTC) keep more places so they don't read as nothing.
+  const capped = (max: number) => {
+    const text = formatDecimal(value, { maxFraction: max });
+    return decimalSign(value) !== 0 && decimalSign(text.replace(/,/g, '')) === 0 ? formatDecimal(value, { maxFraction: 8 }) : text;
+  };
+  const formatted = kind === 'money' ? formatCompactDecimal(value) : kind === 'percent' ? `${formatDecimal(value, { maxFraction: 2 })}%` : capped(2);
   const sign = signed ? decimalSign(value) : 0;
   const classes = ['amount', sign > 0 && 'amount--positive', sign < 0 && 'amount--negative'];
   return (

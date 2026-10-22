@@ -1,4 +1,4 @@
-import { compareDecimals, formatDecimal, isPositiveDecimal, sumDecimals } from './decimal';
+import { compareDecimals, formatCompactDecimal, formatDecimal, isPositiveDecimal, sumDecimals } from './decimal';
 
 describe('decimal strings', () => {
   it('formats with grouping and money decimals, without floating point', () => {
@@ -22,5 +22,15 @@ describe('decimal strings', () => {
     expect(isPositiveDecimal('0')).toBe(false);
     expect(isPositiveDecimal('0.01')).toBe(true);
     expect(isPositiveDecimal('1,000')).toBe(false);
+  });
+
+  it('abbreviates large amounts', () => {
+    expect(formatCompactDecimal('125241.623443627')).toBe('125K');
+    expect(formatCompactDecimal('9999.999')).toBe('10,000.00');
+    expect(formatCompactDecimal('1234.5')).toBe('1,234.50');
+    expect(formatCompactDecimal('-125241.6')).toBe('-125K');
+    expect(formatCompactDecimal('1234567.89')).toBe('1.23M');
+    expect(formatCompactDecimal('12345678.9')).toBe('12M');
+    expect(formatCompactDecimal('0.005')).toBe('0.01');
   });
 });

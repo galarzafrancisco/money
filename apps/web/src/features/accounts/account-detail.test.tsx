@@ -20,7 +20,7 @@ describe('account detail', () => {
     const holdings = await screen.findByRole('region', { name: 'Holdings' });
     expect(within(holdings).getByText('VAS.AX')).toBeInTheDocument();
     expect(within(holdings).getByText('Mock price')).toBeInTheDocument();
-    expect(within(holdings).getByText('30,000.00')).toBeInTheDocument();
+    expect(within(holdings).getByText('30K')).toBeInTheDocument();
     expect(within(screen.getByRole('region', { name: 'Cash balances' })).getByText('1,234.50')).toBeInTheDocument();
     const sections = screen.getByRole('navigation', { name: 'Account sections' });
     expect(within(sections).getByRole('link', { name: 'Overview' })).toHaveAttribute('aria-current', 'page');
