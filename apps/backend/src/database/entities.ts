@@ -15,6 +15,8 @@ import { SuperannuationAccounts1761600000000 } from './migrations/1761600000000-
 import { PriceHistoryCache1761700000000 } from './migrations/1761700000000-PriceHistoryCache';
 import { UpIntegration1761800000000 } from './migrations/1761800000000-UpIntegration';
 import { UpAccountCategory1761900000000 } from './migrations/1761900000000-UpAccountCategory';
+import { ValuationRecomputeCheckpoints1762000000000 } from './migrations/1762000000000-ValuationRecomputeCheckpoints';
+import { PriceCoverageRanges1762100000000 } from './migrations/1762100000000-PriceCoverageRanges';
 
 export const ENTITIES = [UserEntity, AccountEntity, TransactionEntity, SaleLotAllocationEntity, CategoryEntity, HoldingCategoryEntity, TransferEntity, ...UP_ENTITIES];
 export const MIGRATIONS = [
@@ -28,4 +30,6 @@ export const MIGRATIONS = [
   PriceHistoryCache1761700000000,
   UpIntegration1761800000000,
   UpAccountCategory1761900000000,
+  ValuationRecomputeCheckpoints1762000000000,
+  PriceCoverageRanges1762100000000,
 ];

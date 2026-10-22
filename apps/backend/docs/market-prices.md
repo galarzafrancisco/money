@@ -26,9 +26,10 @@ What changes when you switch:
 
 - Quotes, dashboards and portfolios show `source: "yahoo"` and `isMock: false`.
 - The valuation job sees that the existing snapshots were priced by `mock` and
-  re-values every date with Yahoo closes. The first run backfills up to
-  `VALUATION_BACKFILL_DAYS` per symbol in one request per symbol, then stores
-  them. Later runs only ask for new sessions.
+  re-values every date with Yahoo closes, newest first, in batches of
+  `VALUATION_MAX_DAYS_PER_RUN` dates. Each symbol's closes are fetched once
+  for the range a batch needs (one request per symbol and gap) and stored, so
+  later batches and runs only ask for dates not stored yet.
 - Mock and Yahoo closes are stored separately (keyed by `source`). Switching
   back to `mock` re-values with mock data again, and nothing is mixed.
 
@@ -79,7 +80,8 @@ valuations and historical FX. They are read from the database first.
 | Table | Holds |
 |---|---|
 | `market_price_closes` | One close per `(symbol, source, trading_date)`, with `currency`, `exchange_timezone`, `close_time`, `is_mock`, `adjustment`, `fetched_at`, `revised_at` |
-| `market_price_series` | Per `(symbol, source)`: currency, exchange time zone, adjustment, and `covered_from`..`covered_to`, the contiguous range of trading dates known to be stored |
+| `market_price_series` | Per `(symbol, source)`: currency, exchange time zone, adjustment, and `covered_from`..`covered_to`, the envelope of the covered ranges |
+| `market_price_coverage` | Per `(symbol, source)`: the disjoint ranges of trading dates known to be stored (touching ranges are merged) |
 | `market_price_splits` | Split events the provider reported |
 
 These tables hold market data, not personal data. They are shared by all
@@ -89,9 +91,10 @@ users. Holdings, transactions and snapshots stay per user.
 
 `PriceHistoryService.getSeries(symbols, { from, to }, now)`:
 
-1. reads the symbol's covered range;
-2. asks the provider only for the dates outside it, one request per gap (the
-   gap is widened if needed so the covered range stays contiguous). Gaps
+1. reads the symbol's covered ranges;
+2. asks the provider only for the dates outside it, one request per gap (a
+   symbol held in two stretches years apart is stored as two ranges; the
+   years between are never fetched). Gaps
    longer than `MARKET_PRICE_MAX_FETCH_DAYS` are fetched in parts. A gap made
    only of weekend days after the covered range is not fetched;
 3. validates the response: symbol, a 3-letter currency, `AS_TRADED` closes,

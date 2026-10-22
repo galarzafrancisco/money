@@ -1,5 +1,5 @@
 import { DataSource } from 'typeorm';
-import { callTool, createTestApp, type TestApp } from './test-support/test-app';
+import { callTool, createTestApp, undoMigrationsThrough, type TestApp } from './test-support/test-app';
 
 /**
  * The portfolio dashboard over REST and MCP. One user with cash buckets, two
@@ -218,11 +218,7 @@ describe('dashboard', () => {
 
   it('migrates SUPERANNUATION accounts down to OTHER and back up', async () => {
     const ds = t.app.get(DataSource);
-    // The superannuation migration and the two after it (price store, Up! import), plus the Up! account category
-    await ds.undoLastMigration(); // Up! account category
-    await ds.undoLastMigration();
-    await ds.undoLastMigration();
-    await ds.undoLastMigration();
+    await undoMigrationsThrough(ds, 'SuperannuationAccounts1761600000000');
     const [row] = await ds.query(`SELECT "type" FROM "accounts" WHERE "id" = $1`, [ids.super]);
     expect(row.type).toBe('OTHER');
     await ds.runMigrations();

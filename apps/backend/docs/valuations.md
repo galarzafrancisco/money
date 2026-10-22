@@ -65,25 +65,42 @@ are not handled specially.
 ## Schedule
 
 The job runs inside the backend process (`ValuationScheduler`): 15 s after
-startup, then every `VALUATION_JOB_INTERVAL_MINUTES` (default 60). Each run
-does only what is due, so frequent runs are cheap. A run:
+startup, then every `VALUATION_JOB_INTERVAL_MINUTES` (default 60). While a
+backfill is in progress (a run left due dates behind), the next run starts
+`VALUATION_CATCHUP_DELAY_SECONDS` (default 60) after the previous one ends
+instead, until it has caught up. Each run does only what is due, so frequent
+runs are cheap. A run:
 
 1. takes the job lease (`valuation_job_state`). If another instance holds an
    unexpired lease (30 min), the run is skipped. Multiple replicas are safe.
 2. for each user with purchases, works out the **due dates** in
-   `[max(first BUY, today − VALUATION_BACKFILL_DAYS), settledThrough]`:
-   - dates with no snapshot yet (first run, backfill, missed runs or downtime);
-   - `PARTIAL` days within the last `VALUATION_RECHECK_DAYS` (re-tried each
-     run until complete or out of the window);
-   - days computed with a different price provider (switching from `mock` to
-     `yahoo` replaces the mock history);
-   - days on or after a pending recompute request (see below).
-   At most `VALUATION_MAX_DAYS_PER_RUN` dates per user per run; the rest wait
-   for the next run.
+   `[first BUY, settledThrough]`: the whole history, from the first purchase
+   (closed positions included). `VALUATION_BACKFILL_DAYS`, if set, caps it to
+   that many days back. In priority order:
+   1. regular work: dates with no snapshot yet (first run, a lifetime
+      backfill, missed runs or downtime), `PARTIAL` days within the last
+      `VALUATION_RECHECK_DAYS` (re-tried each run until complete or out of
+      the window), days computed with a different price provider (switching
+      from `mock` to `yahoo` replaces the mock history), and days a pending
+      recompute request still covers (see below);
+   2. older `PARTIAL` days whose snapshot is more than
+      `VALUATION_PARTIAL_RETRY_DAYS` old (an outage or a missing close in old
+      history heals by itself).
+
+   Within each group the **newest dates come first**. At most
+   `VALUATION_MAX_DAYS_PER_RUN` dates per user per run; the rest wait for the
+   next (catch-up) run. So the recent months are valued first and older
+   history fills in backwards, batch by batch.
 3. replays each account's ledger for those dates, reads the needed closes from
    the price store (asking the provider only for dates not stored yet, see
    [market-prices.md](market-prices.md)), and **replaces** each (user, date)
-   in one database transaction.
+   in one database transaction. Each symbol is looked up only over the due
+   dates it is held, widened by `VALUATION_MAX_CARRY_DAYS` on both sides (a
+   previous close to carry, a later session that shows a day was a holiday)
+   and never past today. A position sold in 2021 is not looked up for the
+   years after the sale. A symbol sold and bought again later is looked up
+   over each holding stretch only; the price store keeps the covered ranges
+   apart.
 
 **Date D is due** at D+1 `VALUATION_SETTLE_HOUR_UTC`:00 UTC (default 06:00).
 By then the US close of D (20:00/21:00 UTC) and the ASX close (05:00/06:00 UTC
@@ -108,10 +125,17 @@ every insert, update or delete of a BUY or SELL. It upserts
 A second trigger on `sale_lot_allocations` requests a recompute from the
 sale's date whenever a sale's lot allocations change. Each trigger runs in the
 writer's own transaction, so every writer is covered: the transactions API,
-transfers, and account deletion. The next run recomputes all
-of the user's dates from `from_date`. Then it clears the request, unless it
-was renewed meanwhile (compared on `requested_at`), in which case it stays for
-the following run. If a backdated delete removes the first purchase,
+transfers, and account deletion. The next runs recompute all of the user's
+dates from `from_date`, newest first. Requests are read before the ledger, so
+the ledger a run reads includes every change its requests stand for.
+
+A request covering more dates than one run computes (a trade imported years
+back) is **checkpointed**: after each run, `recomputed_from` records that every
+date from there on has been re-valued, and later runs only do the older ones.
+Once nothing is left the request is cleared. Both the checkpoint and the clear
+apply only if the request was not renewed meanwhile (compared on
+`requested_at`). A renewed request starts over, because the trigger renews
+`requested_at`, which voids the checkpoint (`checkpoint_for`). If a backdated delete removes the first purchase,
 snapshots before the new first purchase are deleted.
 
 Deleting an account cascades its snapshot rows. Deleting a user cascades
@@ -121,24 +145,37 @@ everything.
 
 - **Downtime or missed runs**: the next run backfills every missing date.
   No action is needed.
+- **History older than what is materialised** (e.g. after an upgrade from the
+  old 366-day window, or after importing old trades): detected from the
+  ledger and backfilled automatically, newest first. No action is needed.
+  `GET /api/valuations/status` shows the progress (`coverage`).
 - **Provider outage**: closes already stored are used as usual. Dates not
   stored yet are `MISSING` (or `PRICE_PENDING`) and their days are `PARTIAL`.
-  They are re-tried for `VALUATION_RECHECK_DAYS`.
+  They are re-tried every run for `VALUATION_RECHECK_DAYS`, then every
+  `VALUATION_PARTIAL_RETRY_DAYS` at the lowest priority. A delisted or
+  unknown symbol stays `MISSING` (listed in `missingPrices`); no price is
+  made up for it.
 - **Corrected prices**: stored closes are final. Use
   `POST /api/valuations/recompute { fromDate, refreshPrices: true }` to fetch
   them again from `fromDate`. Any close that changed re-values every holder's
   dates from that date, for every user.
-- **Older gaps** (outside the recheck window): call
-  `POST /api/valuations/recompute { fromDate }` (MCP
-  `request_valuation_recompute`). It marks the user's dates from `fromDate`
-  for the next run.
+- **Re-value on demand**: call `POST /api/valuations/recompute { fromDate }`
+  (MCP `request_valuation_recompute`). It marks the user's dates from
+  `fromDate` for the next runs.
 - **Run it now**: `npm -w @money/backend run valuations:run` (after
   `npm run build`) runs one pass with the server's configuration and exits.
   The exit code is non-zero if the run was skipped or a user failed. The lease
   stops it overlapping a scheduled run.
 - `GET /api/valuations/status` shows the user's materialised range, partial
-  days, any pending recompute, and the last run's timing and status. The
-  run's error text stays in the database and logs, because it may mention
+  days, any pending recompute, the last run's timing and status, and:
+  - `coverage`: `firstHoldingDate`, `historyStartsOn`, `requiredDays`,
+    `materialisedDays`, `missingDays` (not valued yet), `partialDays`,
+    `repricingDays` (priced by another provider), `backfillComplete` and
+    `percentComplete`;
+  - `missingPrices`: each symbol that could not be valued on some days, with
+    how many and the first and last such date.
+
+  The run's error text stays in the database and logs, because it may mention
   other users.
 
 ## Configuration
@@ -148,10 +185,12 @@ everything.
 | `VALUATION_JOB_ENABLED` | `true` (`false` in tests) | Run the job on a timer in this process |
 | `VALUATION_JOB_INTERVAL_MINUTES` | `60` | How often it looks for due work |
 | `VALUATION_SETTLE_HOUR_UTC` | `6` | D is due at D+1 at this UTC hour |
-| `VALUATION_BACKFILL_DAYS` | `366` | How far back history is materialised |
+| `VALUATION_BACKFILL_DAYS` | unset | Optional cap on how far back history is materialised. Unset: the whole history from the first purchase |
 | `VALUATION_RECHECK_DAYS` | `7` | How long PARTIAL days are re-tried |
 | `VALUATION_MAX_CARRY_DAYS` | `7` | The oldest previous close that may stand in for a non-trading or pending day |
-| `VALUATION_MAX_DAYS_PER_RUN` | `400` | Dates per user per run |
+| `VALUATION_MAX_DAYS_PER_RUN` | `400` | Dates per user per run (the backfill batch size) |
+| `VALUATION_CATCHUP_DELAY_SECONDS` | `60` | While dates are left over, the next run starts this soon after the last one |
+| `VALUATION_PARTIAL_RETRY_DAYS` | `7` | `PARTIAL` days older than the recheck window are re-tried once their snapshot is this old |
 
 ## Providers
 
@@ -207,7 +246,7 @@ day with `include=holdings`.
 
 - `basis: SNAPSHOT`: the materialised snapshot, used when it exists, was
   priced by the current provider, is `COMPLETE` and has no pending recompute.
-- `basis: ON_DEMAND`: otherwise (no snapshot yet, outside the backfill window,
+- `basis: ON_DEMAND`: otherwise (no snapshot yet, before a capped history,
   `PARTIAL`, or a backdated change or price correction not yet re-valued),
   computed now with the job's own code (`holdingsOn` in `valuation-math.ts`).
   It replays the ledger to `date` and reads closes from the price store,
@@ -227,7 +266,11 @@ re-valued yet.
 - `GET /api/valuations?fromDate&toDate&accountId&includeSubaccounts&symbol&include=totals|holdings&baseCurrency&fxRates`
   (`baseCurrency` alone converts at historical FX; see "FX").
   Defaults to the 90 days up to the latest materialised date. At most 3660
-  days, or 366 with `include=holdings`. `accountId` includes its subaccounts
+  days, or 366 with `include=holdings`. `coverage` says how much of the range
+  is materialised: dates between the first purchase and `settledThrough`
+  without a snapshot (`missingDays`, a backfill in progress) are left out of
+  `days`. They are not zero values. `complete` is true only when none is
+  missing and no day is `PARTIAL`. `accountId` includes its subaccounts
   unless `includeSubaccounts=false`. Each day has `complete` (for the
   holdings in scope), `includesMockPrices`, and `totals.byCurrency` with
   `marketValue` (valued holdings only), `costBase`, `holdings`,

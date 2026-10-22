@@ -1,5 +1,5 @@
 import { DataSource } from 'typeorm';
-import { callTool, createTestApp, type TestApp } from './test-support/test-app';
+import { callTool, createTestApp, undoMigrationsThrough, type TestApp } from './test-support/test-app';
 import { PriceHistoryService } from './valuations/price-history.service';
 import { ValuationJobService } from './valuations/valuation-job.service';
 
@@ -62,11 +62,14 @@ describe('store-first price history and as-of valuations', () => {
         { from: '2025-06-07', to: '2025-06-13' },
       ]);
       expect(wider.get('CACHE2')!.series!.closes).toHaveLength(15);
-      // A disjoint later range fills the gap in one request, keeping the stored range contiguous
+      // A disjoint later range is stored apart: the dates between are not fetched
       await prices.getSeries(['CACHE2'], { from: '2025-06-18', to: '2025-06-19' }, now);
-      expect(requests('CACHE2').at(-1)).toEqual({ from: '2025-06-14', to: '2025-06-19' });
+      expect(requests('CACHE2').at(-1)).toEqual({ from: '2025-06-18', to: '2025-06-19' });
+      expect(await storedRows('CACHE2')).toBe(17);
+      // Asking for the whole span fetches only the gap, and the ranges merge
       await prices.getSeries(['CACHE2'], { from: '2025-05-26', to: '2025-06-19' }, now);
-      expect(requests('CACHE2')).toHaveLength(4);
+      expect(requests('CACHE2').at(-1)).toEqual({ from: '2025-06-14', to: '2025-06-17' });
+      expect(requests('CACHE2')).toHaveLength(5);
       expect(await storedRows('CACHE2')).toBe(19);
     });
 
@@ -258,9 +261,7 @@ describe('store-first price history and as-of valuations', () => {
 
   it('migrates the price store down and back up', async () => {
     const ds = t.app.get(DataSource);
-    await ds.undoLastMigration(); // Up! account category
-    await ds.undoLastMigration(); // the Up! import migration, added after the price store
-    await ds.undoLastMigration();
+    await undoMigrationsThrough(ds, 'PriceHistoryCache1761700000000');
     const [{ exists }] = await ds.query(`SELECT to_regclass('market_price_series') IS NOT NULL AS exists`);
     expect(exists).toBe(false);
     await ds.runMigrations();

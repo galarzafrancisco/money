@@ -12,7 +12,8 @@ import type { TransactionEntity } from '../transactions/transaction.entity';
 import { TransactionsRepository } from '../transactions/transactions.repository';
 import type { CurrentUser } from '../users/users.service';
 import { PriceHistoryService } from './price-history.service';
-import { settledThrough } from './valuation-job.service';
+import { requestCovers } from './due-dates';
+import { historyFloor, settledThrough } from './valuation-job.service';
 import { FINAL_STATUSES, holdingsOn, positionsByDate, type PriceStatus, type SeriesResult } from './valuation-math';
 import {
   recomputeSchema,
@@ -22,7 +23,7 @@ import {
   type ValuationAsOfInput,
   type ValuationHistoryInput,
 } from './valuations.schemas';
-import { ValuationsRepository, type LotSnapshot, type ValuationHoldingRow } from './valuations.repository';
+import { ValuationsRepository, type LotSnapshot, type RecomputeRequest, type ValuationDayRow, type ValuationHoldingRow } from './valuations.repository';
 
 const MAX_RANGE_DAYS = 3660;
 const MAX_HOLDINGS_RANGE_DAYS = 366;
@@ -110,9 +111,30 @@ export type FxView = {
   description: string;
 };
 
+/**
+ * How much of the requested range is materialised. Dates from the first
+ * purchase to settledThrough without a snapshot are not shown in `days`: the
+ * job has not valued them yet (a backfill in progress). They are not zero.
+ */
+export type HistoryCoverage = {
+  /** The user's first purchase: the history starts here */
+  firstHoldingDate: string | null;
+  /** The first date the job materialises (firstHoldingDate, unless VALUATION_BACKFILL_DAYS caps it) */
+  historyStartsOn: string | null;
+  /** The latest date that can be valued (the previous day's closes are final) */
+  settledThrough: string;
+  /** Dates in the requested range that should have a snapshot but do not yet */
+  missingDays: number;
+  /** Days in the range with pending or missing prices (complete: false for the whole portfolio) */
+  partialDays: number;
+  /** True when every date in the range that can be valued is materialised and complete */
+  complete: boolean;
+};
+
 export type ValuationHistory = {
   fromDate: string;
   toDate: string;
+  coverage: HistoryCoverage;
   accountId: string | null;
   includeSubaccounts: boolean;
   symbol: string | null;
@@ -158,11 +180,11 @@ export class ValuationsService {
     private readonly prices: PriceHistoryService,
   ) {}
 
-  async history(user: CurrentUser, input: ValuationHistoryInput = {}): Promise<ValuationHistory> {
+  async history(user: CurrentUser, input: ValuationHistoryInput = {}, now: Date = new Date()): Promise<ValuationHistory> {
     const options = parseInput(valuationHistorySchema, input);
     const accountIds = options.accountId ? await this.scope(user, options.accountId, options.includeSubaccounts) : undefined;
     const summary = await this.repo.daysSummary(user.id);
-    const toDate = options.toDate ?? summary.latest ?? settledThrough(new Date(), this.config.valuations.settleHourUtc);
+    const toDate = options.toDate ?? summary.latest ?? settledThrough(now, this.config.valuations.settleHourUtc);
     const fromDate = options.fromDate ?? addDays(toDate, -(DEFAULT_RANGE_DAYS - 1));
     if (fromDate > toDate) throw new ValidationError('fromDate must not be after toDate');
     const span = daysBetween(fromDate, toDate) + 1;
@@ -171,14 +193,15 @@ export class ValuationsService {
       throw new ValidationError(`include=holdings allows at most ${MAX_HOLDINGS_RANGE_DAYS} days per request; narrow the range or use include=totals`);
     }
 
-    const [days, holdings, requests] = await Promise.all([
+    const [days, holdings, requests, firstBuy] = await Promise.all([
       this.repo.listDays(user.id, fromDate, toDate),
       this.repo.listHoldings(user.id, fromDate, toDate, { accountIds, symbol: options.symbol }),
       this.repo.recomputeRequests(user.id),
+      this.repo.firstPurchaseDate(user.id),
     ]);
     const currencies = [...new Set(holdings.map((h) => h.currency))];
     const fx = await this.conversion(currencies, options, fromDate, toDate);
-    const pendingFrom = pendingRecomputeFrom(requests, accountIds);
+    const coverage = this.coverageOf(firstBuy, days, fromDate, toDate, now);
 
     const byDate = new Map<string, ValuationHoldingRow[]>();
     for (const h of holdings) byDate.set(h.date, [...(byDate.get(h.date) ?? []), h]);
@@ -186,6 +209,7 @@ export class ValuationsService {
     return {
       fromDate,
       toDate,
+      coverage,
       accountId: options.accountId ?? null,
       includeSubaccounts: options.includeSubaccounts,
       symbol: options.symbol ?? null,
@@ -196,7 +220,7 @@ export class ValuationsService {
           date: day.date,
           complete: rows.every((h) => FINAL_STATUSES.includes(h.priceStatus)),
           includesMockPrices: rows.some((h) => h.priceIsMock === true),
-          pendingRecompute: pendingFrom !== null && day.date >= pendingFrom,
+          pendingRecompute: isPendingRecompute(requests, accountIds, day.date),
           priceProvider: day.priceProvider,
           computedAt: day.computedAt.toISOString(),
           totals: totalsOf(rows, fx ? (currency) => fx.rateOn(currency, day.date) : null, fx?.view.baseCurrency ?? null),
@@ -226,8 +250,7 @@ export class ValuationsService {
 
     const [days, requests] = await Promise.all([this.repo.listDays(user.id, options.date, options.date), this.repo.recomputeRequests(user.id)]);
     const day = days[0];
-    const pendingFrom = pendingRecomputeFrom(requests, options.accountId ? accountIds : undefined);
-    const pending = pendingFrom !== null && options.date >= pendingFrom;
+    const pending = isPendingRecompute(requests, options.accountId ? accountIds : undefined, options.date);
     let reason: string | null = null;
     if (!day) reason = 'No snapshot is materialised for this date';
     else if (day.priceProvider !== this.prices.providerName) reason = `The snapshot was priced by ${day.priceProvider}, not ${this.prices.providerName}`;
@@ -335,20 +358,57 @@ export class ValuationsService {
     };
   }
 
-  async status(user: CurrentUser) {
-    const [summary, requests, job] = await Promise.all([this.repo.daysSummary(user.id), this.repo.recomputeRequests(user.id), this.repo.jobState()]);
+  private coverageOf(firstBuy: string | null, days: readonly ValuationDayRow[], fromDate: string, toDate: string, now: Date): HistoryCoverage {
     const cfg = this.config.valuations;
+    const settled = settledThrough(now, cfg.settleHourUtc);
+    const start = firstBuy ? historyFloor(firstBuy, now.toISOString().slice(0, 10), cfg.backfillDays) : null;
+    const from = start && start > fromDate ? start : fromDate;
+    const to = settled < toDate ? settled : toDate;
+    const expected = start && from <= to ? daysBetween(from, to) + 1 : 0;
+    const present = days.filter((d) => d.date >= from && d.date <= to).length;
+    const partialDays = days.filter((d) => d.status === 'PARTIAL').length;
+    const missingDays = Math.max(0, expected - present);
+    return { firstHoldingDate: firstBuy, historyStartsOn: start, settledThrough: settled, missingDays, partialDays, complete: missingDays === 0 && partialDays === 0 };
+  }
+
+  async status(user: CurrentUser, now: Date = new Date()) {
+    const cfg = this.config.valuations;
+    const settled = settledThrough(now, cfg.settleHourUtc);
+    const [summary, requests, job, firstBuy, missingPrices] = await Promise.all([
+      this.repo.daysSummary(user.id),
+      this.repo.recomputeRequests(user.id),
+      this.repo.jobState(),
+      this.repo.firstPurchaseDate(user.id),
+      this.repo.missingPriceSymbols(user.id),
+    ]);
+    const start = firstBuy ? historyFloor(firstBuy, now.toISOString().slice(0, 10), cfg.backfillDays) : null;
+    const requiredDays = start && start <= settled ? daysBetween(start, settled) + 1 : 0;
+    const counts = requiredDays > 0 ? await this.repo.coverageCounts(user.id, start!, settled, this.prices.providerName) : { days: 0, partialDays: 0, otherProviderDays: 0 };
+    const missingDays = requiredDays - counts.days;
     return {
       priceProvider: this.prices.providerName,
       priceProviderIsMock: this.prices.providerName === 'mock',
       jobEnabled: cfg.jobEnabled,
       intervalMinutes: cfg.intervalMinutes,
-      settledThrough: settledThrough(new Date(), cfg.settleHourUtc),
+      settledThrough: settled,
       earliestValuationDate: summary.earliest,
       latestValuationDate: summary.latest,
       materialisedDays: summary.days,
       partialDays: summary.partialDays,
       pendingRecomputeFrom: requests[0]?.fromDate ?? null,
+      coverage: {
+        firstHoldingDate: firstBuy,
+        historyStartsOn: start,
+        historyLimitedByBackfillDays: start !== null && firstBuy !== null && start > firstBuy,
+        requiredDays,
+        materialisedDays: counts.days,
+        missingDays,
+        partialDays: counts.partialDays,
+        repricingDays: counts.otherProviderDays,
+        backfillComplete: missingDays === 0 && counts.otherProviderDays === 0 && requests.length === 0,
+        percentComplete: requiredDays === 0 ? 100 : Math.floor(((counts.days - counts.otherProviderDays) / requiredDays) * 1000) / 10,
+      },
+      missingPrices,
       // Only the timing and outcome: the job's error text may mention other users
       lastRun: job ? { startedAt: job.lastStartedAt?.toISOString() ?? null, finishedAt: job.lastFinishedAt?.toISOString() ?? null, status: job.lastStatus } : null,
     };
@@ -437,9 +497,9 @@ function totalsOf(
 }
 
 /** The earliest pending re-valuation date for the accounts in scope (all of the user's when undefined) */
-function pendingRecomputeFrom(requests: readonly { accountId: string; fromDate: string }[], accountIds: readonly string[] | undefined): string | null {
-  const relevant = accountIds ? requests.filter((r) => accountIds.includes(r.accountId)) : requests;
-  return relevant.reduce<string | null>((min, r) => (min === null || r.fromDate < min ? r.fromDate : min), null);
+/** A request in scope still covers the date: the job has not re-valued it yet */
+function isPendingRecompute(requests: readonly RecomputeRequest[], accountIds: readonly string[] | undefined, date: string): boolean {
+  return requests.some((r) => (!accountIds || accountIds.includes(r.accountId)) && requestCovers(r, date));
 }
 
 function seriesWarnings(series: Map<string, SeriesResult>): string[] {

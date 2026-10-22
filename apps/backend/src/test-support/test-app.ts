@@ -7,6 +7,7 @@ import { fork, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import request from 'supertest';
+import type { DataSource } from 'typeorm';
 import { AppModule } from '../app.module';
 import { loadConfig, type AppConfig } from '../config/env.config';
 import type { MarketPriceProvider } from '../market-prices/market-price.port';
@@ -213,4 +214,14 @@ export async function callTool(
     // Not JSON: SDK-level validation messages are plain text
   }
   return { isError: Boolean(result.isError), data, status: response.status };
+}
+
+/**
+ * Reverts migrations, newest first, until the named one (e.g.
+ * 'PriceHistoryCache1761700000000') is reverted too, so down/up tests keep
+ * working when later migrations are added.
+ */
+export async function undoMigrationsThrough(ds: DataSource, name: string): Promise<void> {
+  const applied = async () => ((await ds.query(`SELECT name FROM migrations WHERE name = $1`, [name])) as unknown[]).length > 0;
+  for (let guard = 0; (await applied()) && guard < 100; guard++) await ds.undoLastMigration();
 }

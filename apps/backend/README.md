@@ -108,7 +108,8 @@ them by hand: `npm -w @money/backend run migration:run` (with `DATABASE_URL` set
 | `VALUATION_JOB_ENABLED` | `true` (`false` in tests) | Run the daily valuation job in this process |
 | `VALUATION_JOB_INTERVAL_MINUTES` | `60` | How often the job looks for due dates |
 | `VALUATION_SETTLE_HOUR_UTC` | `6` | Date D is valued once D+1 at this UTC hour has passed |
-| `VALUATION_BACKFILL_DAYS` / `VALUATION_RECHECK_DAYS` / `VALUATION_MAX_CARRY_DAYS` / `VALUATION_MAX_DAYS_PER_RUN` | `366` / `7` / `7` / `400` | See [docs/valuations.md](docs/valuations.md) |
+| `VALUATION_BACKFILL_DAYS` / `VALUATION_RECHECK_DAYS` / `VALUATION_MAX_CARRY_DAYS` / `VALUATION_MAX_DAYS_PER_RUN` | unset (whole history) / `7` / `7` / `400` | See [docs/valuations.md](docs/valuations.md) |
+| `VALUATION_CATCHUP_DELAY_SECONDS` / `VALUATION_PARTIAL_RETRY_DAYS` | `60` / `7` | Backfill pacing and old-gap retries; see [docs/valuations.md](docs/valuations.md) |
 
 ## Market prices
 

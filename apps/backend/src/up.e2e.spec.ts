@@ -1,6 +1,6 @@
 import { DataSource } from 'typeorm';
 import { createUpMock, signBody, type UpMock } from 'up-bank-mock';
-import { callTool, createTestApp, type TestApp } from './test-support/test-app';
+import { callTool, createTestApp, undoMigrationsThrough, type TestApp } from './test-support/test-app';
 
 /**
  * The Up! integration against the up-bank-mock package: nothing here contacts
@@ -424,8 +424,7 @@ describe('Up! read-only import (mock provider)', () => {
 
   it('migrates the Up tables down and back up', async () => {
     const ds = t.app.get(DataSource);
-    await ds.undoLastMigration(); // UpAccountCategory
-    await ds.undoLastMigration(); // UpIntegration
+    await undoMigrationsThrough(ds, 'UpIntegration1761800000000');
     const [{ exists }] = await ds.query(`SELECT to_regclass('up_integrations') IS NOT NULL AS exists`);
     expect(exists).toBe(false);
     await ds.runMigrations();
