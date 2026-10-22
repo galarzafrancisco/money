@@ -41,7 +41,12 @@ npm run dev         # run the backend in watch mode (http://localhost:4180)
 npm run dev:web     # Vite dev server for the web app (http://localhost:5173), proxying /api and /auth to 4180
 npm test            # every project's tests
 npm run typecheck   # every project
+npm run seed        # reset + seed fictional users (dev/test only; stop the PGlite dev server first)
 ```
+
+Use the synthetic seed data, never real figures, for local testing:
+`npm run seed -- --as <your-taico-subject>` puts it in your own identity for the
+UI. See [apps/backend/docs/seed-data.md](apps/backend/docs/seed-data.md).
 
 Builds are orchestrated by **Nx** over npm workspaces. The order is:
 backend (which also writes `apps/backend/openapi.json`) →

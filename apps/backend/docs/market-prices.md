@@ -197,6 +197,17 @@ its `asOf`. Only the history uses daily closes.
   It checks a real quote (no mock label), dated closes and historical FX from
   Yahoo, and that a second lookup of the same history makes no request.
 
+### Mock ticker suffixes
+
+The mock provider reserves two ticker suffixes, so a running development
+server can show price edge cases without a test hook. The
+[synthetic seed data](seed-data.md) uses them.
+
+| Suffix | Behaviour | Shows |
+|---|---|---|
+| `.MOCKMISSING` (e.g. `DELIST.MOCKMISSING`) | Unknown symbol: no quote, no closes | A missing price (valued at cost) |
+| `.MOCKSTALE` (e.g. `GRWTH.MOCKSTALE`) | Latest quotes always fail; daily closes work | A stale price (the last stored close) |
+
 ## Operations
 
 - To see what is stored, run `SELECT * FROM market_price_series ORDER BY symbol`.
