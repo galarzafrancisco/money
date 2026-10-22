@@ -54,8 +54,11 @@ function ConnectedPanel({ status }: { status: UpStatus }) {
   const [confirming, setConfirming] = useState(false);
   const [purge, setPurge] = useState(false);
   // Selection mode starts when nothing is chosen yet and stays on until "Done", so ticking the first account does not hide the rest
-  const [choosing, setChoosing] = useState(false);
-  if (status.accounts.total > 0 && status.accounts.visible === 0 && !choosing) setChoosing(true);
+  // null = not decided yet. It is decided once, so "Done" with nothing ticked really leaves every account hidden
+  const [chooseState, setChooseState] = useState<boolean | null>(null);
+  if (chooseState === null && status.accounts.total > 0) setChooseState(status.accounts.visible === 0);
+  const choosing = chooseState === true;
+  const setChoosing = setChooseState;
   const visible = useUpAccounts('visible');
   const all = useUpAccounts('all', showAll || choosing);
   const needsChoice = choosing;

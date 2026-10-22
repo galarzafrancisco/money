@@ -44,6 +44,17 @@ describe('connections', () => {
     expect(client.up.updateUpAccount).toHaveBeenLastCalledWith({ accountId: 'ua1', body: { categoryId: 'cat-1' } });
   });
 
+  it('lets the user press Done with nothing ticked and keeps every account hidden', async () => {
+    const client = fakeClient();
+    client.up.getUpStatus.mockResolvedValue(status());
+    client.up.listUpAccounts.mockResolvedValue([upAccount(), upAccount({ id: 'ua2', displayName: 'Spending' })]);
+    const { user } = renderApp('/connections', { client });
+    expect(await screen.findByText('Choose the accounts to show')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Done' }));
+    expect(await screen.findByLabelText(/Show all accounts/)).toBeInTheDocument();
+    expect(screen.queryByText('Choose the accounts to show')).not.toBeInTheDocument();
+  });
+
   it('keeps hidden accounts behind a show-all toggle on the Accounts page', async () => {
     const client = fakeClient();
     client.accounts.listAccounts.mockResolvedValue([]);

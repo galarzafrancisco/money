@@ -1,5 +1,5 @@
 import type { UpAccount } from '@money/client';
-import { Amount, Badge, Checkbox, SelectField, Stack, Swatch, Table, Text } from '../../ui';
+import { Amount, Badge, Checkbox, SelectField, Stack, Table, Text } from '../../ui';
 import { useCategories } from '../categories/data';
 import { useUpdateUpAccount } from './data';
 
@@ -42,23 +42,17 @@ export function UpAccountsTable({ label, accounts }: { label: string; accounts: 
         {
           key: 'category',
           header: 'Category',
-          render: (a) => {
-            const own = categories.data?.find((c) => c.id === a.categoryId);
-            return (
-              <Stack gap={1}>
-                <SelectField
-                  label={<span className="visually-hidden">Category for {a.displayName}</span>}
-                  value={a.categoryId ?? ''}
-                  disabled={update.isPending || categories.isPending}
-                  onChange={(e) => update.mutate({ accountId: a.id, body: { categoryId: e.target.value || null } })}
-                >
-                  <option value="">Uncategorized</option>
-                  {categories.data?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </SelectField>
-                {own && <Text size="xs" as="span"><Swatch color={own.color} /> {own.name}</Text>}
-              </Stack>
-            );
-          },
+          render: (a) => (
+            <SelectField
+              label={<span className="visually-hidden">Category for {a.displayName}</span>}
+              value={a.categoryId ?? ''}
+              disabled={update.isPending || categories.isPending}
+              onChange={(e) => update.mutate({ accountId: a.id, body: { categoryId: e.target.value || null } })}
+            >
+              <option value="">Uncategorized</option>
+              {categories.data?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </SelectField>
+          ),
         },
       ]}
     />
