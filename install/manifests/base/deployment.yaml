@@ -6,12 +6,17 @@ metadata:
   labels:
     app: money
 spec:
-  # One pod, replaced with Recreate: migrations run on startup, and TypeORM
-  # doesn't serialize two pods migrating the same database at once. Data lives
-  # in PostgreSQL, so replacing the pod loses nothing.
+  # One pod, replaced with a rolling update so a deploy has no downtime: the new
+  # pod starts and must pass its readiness probe before the old one is stopped.
+  # For that short overlap both pods run against the same PostgreSQL database,
+  # and the new one runs any pending migrations on startup. Data lives in
+  # PostgreSQL, so replacing the pod loses nothing.
   replicas: 1
   strategy:
-    type: Recreate
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
       app: money
