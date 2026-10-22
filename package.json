@@ -12,16 +12,14 @@
   },
   "scripts": {
     "build": "nx run-many -t build",
-    "build:packages": "nx run-many -t build -p @taico/auth",
     "build:dev": "npm ci && npm run build && npm run verify:auth",
-    "dev": "npm run build:packages && npm -w @money/backend run dev",
+    "dev": "npm -w @money/backend run dev",
     "dev:web": "nx run @money/client:build && npm -w @money/web run dev",
     "test": "nx run-many -t test",
     "typecheck": "nx run-many -t typecheck",
     "verify:auth": "node scripts/verify-auth-imports.mjs",
     "nx": "nx",
     "graph": "nx graph",
-    "dev:auth": "npm run build:packages && tsc -p packages/auth/tsconfig.build.json --watch --preserveWatchOutput",
     "start": "npm -w @money/backend run start"
   },
   "devDependencies": {

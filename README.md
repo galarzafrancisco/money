@@ -13,7 +13,7 @@ An Nx + npm-workspaces monorepo, structured like ai-monorepo:
 apps/       deployable applications
   backend/  REST + MCP API over shared business logic (see apps/backend/README.md)
 packages/   shared libraries
-  auth/     @taico/auth, TEMPORARILY vendored from ai-monorepo (see packages/auth/VENDORED.md)
+  client/   @money/client, REST client generated from the backend's OpenAPI spec
 docs/       repository-wide design guides and review checklists (see docs/README.md)
 ```
 
@@ -32,8 +32,7 @@ architecture, and links every design guide and review checklist (index:
 | `npm install` | Install and link workspace packages |
 | `npm run build` | Build every project (Nx, dependency-ordered, cached) |
 | `npm run build:dev` | Clean install (`npm ci`), build, verify `@taico/auth` imports resolve |
-| `npm run dev` | Build packages, then run the backend in watch mode (http://localhost:4180) |
-| `npm run dev:auth` | Watch-compile `@taico/auth` only |
+| `npm run dev` | Run the backend in watch mode (http://localhost:4180) |
 | `npm start` | Run the built backend |
 | `npm test` | Run every project's tests |
 | `npm run typecheck` | Type-check every project |

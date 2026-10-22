@@ -10,14 +10,13 @@ WORKDIR /workdir
 COPY package*.json ./
 COPY apps/backend/package.json ./apps/backend/
 COPY apps/web/package.json ./apps/web/
-COPY packages/auth/package.json ./packages/auth/
 COPY packages/client/package.json ./packages/client/
 
 RUN --mount=type=cache,target=/root/.npm npm ci
 
 COPY . .
 
-# Nx order: @taico/auth → backend (also writes openapi.json) → @money/client (generated
+# Nx order: backend (also writes openapi.json) → @money/client (generated
 # from the spec) → web app (Vite bundle that the backend serves at /)
 RUN npx nx run-many -t build -p @money/backend @money/web --skip-nx-cache
 
@@ -32,13 +31,11 @@ ENV PORT=4180
 COPY package*.json ./
 COPY apps/backend/package.json ./apps/backend/
 COPY apps/web/package.json ./apps/web/
-COPY packages/auth/package.json ./packages/auth/
 COPY packages/client/package.json ./packages/client/
 
-# Production dependencies only (the web app is a static bundle and needs none); @taico/auth resolves through the workspace symlink
+# Production dependencies only (the web app is a static bundle and needs none); @taico/auth comes from npm
 RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev
 
-COPY --from=builder /workdir/packages/auth/dist ./packages/auth/dist
 COPY --from=builder /workdir/apps/backend/dist ./apps/backend/dist
 # Served by the backend at / (src/web-app/serve-web-app.ts), same origin as /api and /auth
 COPY --from=builder /workdir/apps/web/dist ./apps/web/dist

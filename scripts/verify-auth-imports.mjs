@@ -1,6 +1,6 @@
-// Smoke test: resolve @taico/auth the way a Money app will (through the npm
-// workspace symlink in node_modules, not a relative path) and check that every
-// public subpath loads and exposes the entry points Money relies on.
+// Smoke test: resolve the installed @taico/auth from node_modules the way a
+// Money app does, and check that every public subpath loads and exposes the
+// entry points Money relies on.
 import assert from 'node:assert/strict';
 
 const core = await import('@taico/auth');
@@ -23,4 +23,4 @@ if (failures.length) {
   console.error('verify:auth failed\n' + failures.join('\n'));
   process.exit(1);
 }
-console.log(`verify:auth ok: @taico/auth + ${subpaths.length} subpaths resolve from the workspace`);
+console.log(`verify:auth ok: @taico/auth + ${subpaths.length} subpaths resolve`);

@@ -37,14 +37,14 @@ services sit behind a REST API (`/api`) and an MCP server (`/mcp`).
 
 ```bash
 npm run build:dev   # cloned -> ready: npm ci, build every project, verify @taico/auth imports
-npm run dev         # build packages, then run the backend in watch mode (http://localhost:4180)
+npm run dev         # run the backend in watch mode (http://localhost:4180)
 npm run dev:web     # Vite dev server for the web app (http://localhost:5173), proxying /api and /auth to 4180
 npm test            # every project's tests
 npm run typecheck   # every project
 ```
 
 Builds are orchestrated by **Nx** over npm workspaces. The order is:
-`@taico/auth` → backend (which also writes `apps/backend/openapi.json`) →
+backend (which also writes `apps/backend/openapi.json`) →
 `@money/client` (generated from the spec) → `@money/web`. After `npm run build`,
 the backend serves the web app at `/`. Without `DATABASE_URL`,
 the backend uses embedded PGlite in `apps/backend/.data/pglite`. If port 4180
@@ -74,7 +74,6 @@ apps/
 ├── backend/   @money/backend: NestJS 11, TypeORM, Postgres/PGlite, MCP SDK, zod, Jest; writes openapi.json
 └── web/       @money/web: React 19 + Vite web app (accounts, holdings, recording activity), Vitest
 packages/
-├── auth/      @taico/auth, temporarily vendored from ai-monorepo (do not edit; see VENDORED.md)
 └── client/    @money/client: REST client generated from openapi.json by @taico/openapi-sdkgen (build output)
 install/
 └── manifests/ Kustomize base + overlays/main, copied to spark-ops by CI (docs/deployment.md)
@@ -136,8 +135,11 @@ assumptions) is documented in [apps/backend/docs/](apps/backend/docs/).
 - The SQL must run on both Postgres and PGlite. There is one dialect and one
   migration set.
 
-## Vendored code
+## `@taico/auth`
 
-`packages/auth` is an unmodified copy of `@taico/auth`. Do not edit it here.
-Fix it upstream in ai-monorepo and re-vendor it, as described in
-`packages/auth/VENDORED.md`.
+Taico federated auth comes from the published
+[`@taico/auth`](https://www.npmjs.com/package/@taico/auth) npm package, a regular
+dependency of `@money/backend`. Do not copy or patch it in this repo. Fix it
+upstream in ai-monorepo, publish a new version and bump the dependency.
+`npm run verify:auth` checks that every public subpath of the installed package
+loads.

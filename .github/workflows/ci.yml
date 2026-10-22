@@ -88,9 +88,6 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-      - name: Test @taico/auth
-        run: npx nx run @taico/auth:test
-
       - name: Test backend
         # Each test file boots its own app and database; two workers keep
         # memory bounded (see docs/ci.md)
