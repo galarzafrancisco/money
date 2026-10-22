@@ -18,7 +18,18 @@ import type { DailyClose, DailyCloseSeries, FxQuote, MarketPriceProvider, Quote,
  * (AUD 0.65, EUR 1.08, …) and a pair's rate is the ratio, unless a test sets
  * one. Unknown currencies have no rate. Daily history of a pair uses Yahoo's
  * symbol form, e.g. "AUDUSD=X" (USD per AUD), closing at 23:00 London time.
+ *
+ * Two reserved ticker suffixes let a running development server show price
+ * edge cases without a test hook (the synthetic seed data uses them):
+ * - `*.MOCKMISSING`: the provider does not know the symbol (no quote, no closes).
+ * - `*.MOCKSTALE`: latest quotes fail as if the provider were down, while
+ *   daily closes work, so the last stored close is served as a stale price.
  */
+/** Reserved mock ticker suffix: the symbol is unknown (missing price) */
+export const MOCK_MISSING_SUFFIX = '.MOCKMISSING';
+/** Reserved mock ticker suffix: latest quotes fail, daily closes work (stale price) */
+export const MOCK_STALE_SUFFIX = '.MOCKSTALE';
+
 export class MockPriceProvider implements MarketPriceProvider {
   readonly name = 'mock';
   private readonly overrides = new Map<string, { price: string; currency?: string }>();
@@ -89,7 +100,10 @@ export class MockPriceProvider implements MarketPriceProvider {
     if (this.failing.has(upper) || this.failing.has('*')) {
       throw new UpstreamError(`Mock price for ${upper} is unavailable (simulated provider failure)`);
     }
-    if (this.unknown.has(upper)) return null;
+    if (upper.endsWith(MOCK_STALE_SUFFIX)) {
+      throw new UpstreamError(`Mock price for ${upper} is unavailable (reserved ${MOCK_STALE_SUFFIX} suffix: quotes always fail)`);
+    }
+    if (this.unknown.has(upper) || upper.endsWith(MOCK_MISSING_SUFFIX)) return null;
     const override = this.overrides.get(upper);
     return {
       symbol: upper,
@@ -118,7 +132,7 @@ export class MockPriceProvider implements MarketPriceProvider {
     if (this.failing.has(upper) || this.failing.has('*')) {
       throw new UpstreamError(`Mock price history for ${upper} is unavailable (simulated provider failure)`);
     }
-    if (this.unknown.has(upper)) return null;
+    if (this.unknown.has(upper) || upper.endsWith(MOCK_MISSING_SUFFIX)) return null;
     const pair = /^([A-Z]{3})([A-Z]{3})=X$/.exec(upper);
     const pairKey = pair ? `${pair[1]}|${pair[2]}` : '';
     const fxRate = pair ? (this.fxOverrides.has(pairKey) ? this.fxOverrides.get(pairKey)! : mockFxRate(pair[1], pair[2])) : null;

@@ -38,6 +38,13 @@ import { ValuationScheduler } from './valuations/valuation.scheduler';
 import { ValuationsRepository } from './valuations/valuations.repository';
 import { ValuationsService } from './valuations/valuations.service';
 import { UsersService } from './users/users.service';
+import { UpApiClient } from './up/up-api.client';
+import { UpSyncService, UP_API_CLIENT } from './up/up-sync.service';
+import { UpVault } from './up/up-vault';
+import { UpWebhookController } from './up/up-webhook.controller';
+import { UpWebhookService } from './up/up-webhook.service';
+import { UpRepository } from './up/up.repository';
+import { UpService } from './up/up.service';
 import { SessionAuthMiddleware } from './web-auth/session-auth.middleware';
 import { TaicoWebClient } from './web-auth/taico-web-client';
 import { WebAuthController } from './web-auth/web-auth.controller';
@@ -52,6 +59,8 @@ export type AppModuleOptions = {
   priceProvider?: MarketPriceProvider;
   /** Overrides how browser sign-in talks to Taico (tests stand in a fake authorization server) */
   webAuthFetch?: typeof fetch;
+  /** Overrides how Money reaches Up (tests normally use the up-bank-mock package over HTTP instead) */
+  upFetch?: typeof fetch;
 };
 
 export function priceProviderFor(config: AppConfig): MarketPriceProvider {
@@ -85,7 +94,7 @@ export class AppModule implements NestModule {
           metadata: { resources: protectedResources(config), authorizationServers: config.auth.authorizationServers },
         }),
       ],
-      controllers: [HealthController, ...REST_CONTROLLERS, McpController, WebAuthController],
+      controllers: [HealthController, ...REST_CONTROLLERS, McpController, WebAuthController, UpWebhookController],
       providers: [
         { provide: APP_CONFIG, useValue: config },
         { provide: MARKET_PRICE_PROVIDER, useValue: throttled(options.priceProvider ?? priceProviderFor(config), config) },
@@ -114,6 +123,12 @@ export class AppModule implements NestModule {
         ValuationJobService,
         ValuationsService,
         ValuationScheduler,
+        { provide: UP_API_CLIENT, useFactory: () => new UpApiClient({ ...config.up, baseUrl: config.up.apiBaseUrl }, options.upFetch ?? fetch) },
+        UpRepository,
+        UpVault,
+        UpSyncService,
+        UpService,
+        UpWebhookService,
         MoneyMcpServerFactory,
         { provide: MONEY_RESOURCE_SERVER, useValue: resourceServer },
         { provide: TaicoWebClient, useValue: new TaicoWebClient(config, options.webAuthFetch) },

@@ -117,6 +117,8 @@ A rendered manifest is not a deployment. Check a live rollout with
 | `TAICO_AUTHORIZATION_SERVERS` | `https://taico.app/mcp/money/0.0.0` | Advertised in protected-resource metadata: the authorization server of Taico's `money` MCP server entry |
 | `DATABASE_MODE` | `postgres` | Explicit, so a missing `DATABASE_URL` fails startup. See below |
 | `DATABASE_SSL` | `false` | The connection stays on the Spark host; spark-ops serves it without TLS |
+| `UP_API_BASE_URL` | `https://api.up.com.au/api/v1` | Up's API for the read-only Up import ([up-integration.md](../apps/backend/docs/up-integration.md)) |
+| `UP_REGISTER_WEBHOOK` | `true` | Register `$PUBLIC_BASE_URL/api/v1/webhooks/up` with Up when a user connects |
 | `MARKET_PRICE_PROVIDER` | `yahoo` | Real (delayed, unofficial, keyless) Yahoo Finance prices, read store-first and throttled. Set `mock` for labelled made-up prices. See [market-prices.md](../apps/backend/docs/market-prices.md) for the caveats and the `MARKET_PRICE_*` tuning defaults |
 
 Browser sign-in ([web-auth.md](../apps/backend/docs/web-auth.md)) uses its
@@ -255,6 +257,7 @@ Secrets are created out of band in the cluster and never committed.
 
 | Secret (namespace `money`) | Keys | Status |
 |---|---|---|
+| `money-up` | `UP_ENCRYPTION_KEY`: 32 random bytes, base64 | **Not yet provisioned.** Encrypts users' Up personal access tokens and webhook secrets at rest. Optional for the pod (`optional: true`): without it the Up import answers `503 not_configured` and everything else works. Provision it before enabling Up in production; back it up with the database. Losing or rotating it makes stored Up tokens unreadable: users reconnect |
 | `money-session` | `SESSION_ENCRYPTION_KEY`: 32 random bytes, base64 | **Provisioned.** Encrypts the Taico tokens of browser sessions at rest ([web-auth.md](../apps/backend/docs/web-auth.md)). Required: without it the pod stays in `CreateContainerConfigError`. Kept on the host like spark-ops' other secrets; back it up with the database. Rotating it ends all sessions; don't recreate it |
 | `money-database` | `DATABASE_URL`: `postgresql://money:<password>@money-postgres:5432/money` | **Provisioned by spark-ops** (`bootstrap/money-postgres.sh`), which owns it. Not defined in Money's manifests (credentials). See [Database](#database) |
 

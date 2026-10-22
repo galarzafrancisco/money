@@ -10,8 +10,8 @@ import type { MigrationInterface, QueryRunner } from 'typeorm';
  * - market_price_series.covered_from/covered_to stay as the envelope of the
  *   ranges, for a quick look; the ranges are the truth.
  */
-export class PriceCoverageRanges1761900000000 implements MigrationInterface {
-  name = 'PriceCoverageRanges1761900000000';
+export class PriceCoverageRanges1762000000000 implements MigrationInterface {
+  name = 'PriceCoverageRanges1762000000000';
 
   async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`

@@ -33,6 +33,8 @@ export type AppConfig = {
   };
   /** Browser sign-in through Taico, with server-side sessions (see docs/web-auth.md) */
   webAuth: WebAuthConfig;
+  /** Read-only Up! bank-data import (see docs/up-integration.md) */
+  up: UpConfig;
   marketPrices: {
     provider: MarketPriceProviderName;
     /** How long a latest quote or FX rate is reused before asking the provider again */
@@ -70,6 +72,30 @@ export type AppConfig = {
     /** PARTIAL days older than the recheck window are re-tried (lowest priority) once their snapshot is this old */
     partialRetryDays: number;
   };
+};
+
+export type UpConfig = {
+  /** Up's API base URL, with /api/v1. Development and tests point it at the up-bank-mock package */
+  apiBaseUrl: string;
+  /**
+   * AES-256-GCM key for stored Up personal access tokens and webhook secrets.
+   * Null: the integration is disabled (connect answers 503). Required for it in production.
+   */
+  encryptionKey: Buffer | null;
+  /** True when the key was generated for this process (development only): stored tokens stop decrypting on restart */
+  encryptionKeyEphemeral: boolean;
+  /** The one global URL Up posts webhook events to. Carries no user ID or token */
+  webhookUrl: string;
+  /** Register a webhook with Up when connecting. Requires webhookUrl to be reachable by Up */
+  registerWebhook: boolean;
+  /** Transactions requested per page (Up caps at 100) */
+  pageSize: number;
+  /** Upper bound on pages followed per list in one sync, a guard against a paging loop */
+  maxPages: number;
+  /** An incremental sync re-reads this many days before its cursor, to catch status changes and deletions */
+  overlapDays: number;
+  /** Per-request timeout towards Up */
+  requestTimeoutMs: number;
 };
 
 export type WebAuthConfig = {
@@ -140,6 +166,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       apiResourceUrl: `${publicBaseUrl}/api`,
     },
     webAuth: loadWebAuthConfig(env, nodeEnv, issuer, publicBaseUrl),
+    up: loadUpConfig(env, nodeEnv, publicBaseUrl),
     marketPrices: {
       provider,
       cacheSeconds: intEnv(env, 'MARKET_PRICE_CACHE_SECONDS', 300, 0, 24 * 3600),
@@ -159,6 +186,34 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       catchupDelaySeconds: intEnv(env, 'VALUATION_CATCHUP_DELAY_SECONDS', 60, 1, 24 * 3600),
       partialRetryDays: intEnv(env, 'VALUATION_PARTIAL_RETRY_DAYS', 7, 1, 366),
     },
+  };
+}
+
+export const UP_WEBHOOK_PATH = '/api/v1/webhooks/up';
+
+function loadUpConfig(env: NodeJS.ProcessEnv, nodeEnv: AppConfig['nodeEnv'], publicBaseUrl: string): UpConfig {
+  let encryptionKey: Buffer | null = null;
+  let encryptionKeyEphemeral = false;
+  if (env.UP_ENCRYPTION_KEY) {
+    encryptionKey = Buffer.from(env.UP_ENCRYPTION_KEY, 'base64');
+    if (encryptionKey.length !== 32) throw new Error('UP_ENCRYPTION_KEY must be 32 bytes, base64-encoded (openssl rand -base64 32)');
+  } else if (nodeEnv !== 'production') {
+    encryptionKey = randomBytes(32);
+    encryptionKeyEphemeral = true;
+  }
+  const apiBaseUrl = stripSlash(env.UP_API_BASE_URL ?? 'https://api.up.com.au/api/v1');
+  if (!/^https?:\/\//.test(apiBaseUrl)) throw new Error(`UP_API_BASE_URL must be an http(s) URL, got ${apiBaseUrl}`);
+  return {
+    apiBaseUrl,
+    encryptionKey,
+    encryptionKeyEphemeral,
+    webhookUrl: `${publicBaseUrl}${UP_WEBHOOK_PATH}`,
+    // Only a public https callback is useful to the real service; tests and local development opt in
+    registerWebhook: (env.UP_REGISTER_WEBHOOK ?? (publicBaseUrl.startsWith('https://') ? 'true' : 'false')) === 'true',
+    pageSize: intEnv(env, 'UP_PAGE_SIZE', 100, 1, 100),
+    maxPages: intEnv(env, 'UP_MAX_PAGES', 500, 1, 10_000),
+    overlapDays: intEnv(env, 'UP_SYNC_OVERLAP_DAYS', 14, 0, 365),
+    requestTimeoutMs: intEnv(env, 'UP_REQUEST_TIMEOUT_MS', 15_000, 100, 120_000),
   };
 }
 

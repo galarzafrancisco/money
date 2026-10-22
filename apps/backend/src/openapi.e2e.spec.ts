@@ -1,3 +1,4 @@
+import { createUpMock, type UpMock } from 'up-bank-mock';
 import { buildOpenApiSpec, listRoutes, type RestRoute } from './openapi/build-spec';
 import { assertGeneratorCompatible, normalizeSchema } from './openapi/normalize';
 import { REST_CONTROLLERS } from './openapi/rest-controllers';
@@ -50,14 +51,20 @@ describe('OpenAPI spec', () => {
 describe('REST responses match the OpenAPI response schemas', () => {
   let t: TestApp;
   let token: string;
+  let up: UpMock;
   const routes = listRoutes(REST_CONTROLLERS).filter((r) => r.path.startsWith('/api'));
   const covered = new Set<string>();
 
   beforeAll(async () => {
-    t = await createTestApp();
+    up = createUpMock({ retryDelaysMs: [] });
+    const baseUrl = await up.listen();
+    t = await createTestApp({ env: { UP_API_BASE_URL: baseUrl, UP_REGISTER_WEBHOOK: 'false', UP_ENCRYPTION_KEY: Buffer.alloc(32, 3).toString('base64') } });
     token = await t.token({ subject: 'openapi-user' });
   });
-  afterAll(() => t.close());
+  afterAll(async () => {
+    await up.close();
+    await t.close();
+  });
 
   function routeFor(method: string, url: string): RestRoute {
     const path = url.split('?')[0];
@@ -144,6 +151,23 @@ describe('REST responses match the OpenAPI response schemas', () => {
     await call('delete', `/api/accounts/${bucket.id}`);
     await call('delete', `/api/accounts/${broker.id}?deleteTransactions=true`);
     await call('delete', `/api/categories/${category.id}?unassign=true`);
+
+    // Up! import (read-only), against the mock provider
+    const upToken = 'up:user:openapi-mock-token';
+    up.addCustomer(upToken);
+    await call('get', '/api/up/status');
+    await call('post', '/api/up/connection', { token: upToken });
+    await call('post', '/api/up/sync');
+    const upAccounts = await call('get', '/api/up/accounts?visibility=all');
+    await call('put', '/api/up/accounts/visibility', { visibleAccountIds: [upAccounts[0].id] });
+    await call('patch', `/api/up/accounts/${upAccounts[0].id}`, { visible: true });
+    const upTransactions = await call('get', `/api/up/transactions?accountId=${upAccounts[0].id}&limit=5`);
+    const manual = await call('post', '/api/accounts', { name: 'Manual' });
+    const deposit = await call('post', `/api/accounts/${manual.id}/transactions`, { type: 'DEPOSIT', date: '2024-01-02', currency: 'AUD', amount: '10' });
+    await call('put', `/api/up/transactions/${upTransactions.items[0].id}/match`, { transactionId: deposit.id });
+    await call('delete', `/api/up/transactions/${upTransactions.items[0].id}/match`);
+    await call('get', '/api/up/sync-runs');
+    await call('delete', '/api/up/connection?purge=true');
 
     const all = routes.map((r) => r.options!.operationId).sort();
     expect([...covered].sort()).toEqual(all);

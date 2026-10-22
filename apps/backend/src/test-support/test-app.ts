@@ -117,6 +117,8 @@ export type TestAppOptions = {
   env?: Record<string, string>;
   /** Stands in for Taico's authorization server in browser sign-in tests */
   webAuthFetch?: typeof fetch;
+  /** How Money reaches Up (default: global fetch, aimed at UP_API_BASE_URL) */
+  upFetch?: typeof fetch;
   /** Adjusts the app before init, as main.ts does (e.g. serving the web app) */
   configure?: (app: INestApplication) => void;
   /** A real provider instead of the mock (opt-in live tests only); `prices` is then unused */
@@ -148,9 +150,9 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
 
   const boot = async (): Promise<INestApplication> => {
     const moduleRef = await Test.createTestingModule({
-      imports: [AppModule.forRoot({ config, jwks: staticJwks([jwk]), priceProvider: options.priceProvider ?? prices, webAuthFetch: options.webAuthFetch })],
+      imports: [AppModule.forRoot({ config, jwks: staticJwks([jwk]), priceProvider: options.priceProvider ?? prices, webAuthFetch: options.webAuthFetch, upFetch: options.upFetch })],
     }).compile();
-    const app = moduleRef.createNestApplication({ logger: false });
+    const app = moduleRef.createNestApplication({ logger: false, rawBody: true });
     options.configure?.(app);
     await app.init();
     return app;
