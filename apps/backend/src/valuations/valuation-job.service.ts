@@ -9,7 +9,7 @@ import type { TransactionEntity } from '../transactions/transaction.entity';
 import { TransactionsRepository } from '../transactions/transactions.repository';
 import { requestProgress, selectDueDates } from './due-dates';
 import { PriceHistoryService } from './price-history.service';
-import { FINAL_STATUSES, holdingsOn, positionsByDate } from './valuation-math';
+import { FINAL_STATUSES, holdingsOn, positionsByDate, priceWindows } from './valuation-math';
 import { ValuationsRepository } from './valuations.repository';
 
 export type UserRunSummary = {
@@ -159,10 +159,8 @@ export class ValuationJobService {
       accountId: account.id,
       byDate: positionsByDate((rowsByAccount.get(account.id) ?? []).map(toLedgerEntry), due),
     }));
-    const symbols = new Set<string>();
-    for (const { byDate } of positions) for (const list of byDate.values()) for (const p of list) symbols.add(p.symbol);
-    // Up to today, so a later session reveals a holiday; back far enough to carry a previous close
-    const series = await this.prices.getSeries([...symbols], { from: addDays(due[0], -cfg.maxCarryDays), to: today }, now);
+    // Each symbol only over the due dates it is held, so closed positions are not looked up past their sale
+    const series = await this.prices.getSeriesByRange(priceWindows(positions, due, cfg.maxCarryDays, today), now);
 
     for (const date of due) {
       const holdings = holdingsOn(positions, date, series, cfg.maxCarryDays);

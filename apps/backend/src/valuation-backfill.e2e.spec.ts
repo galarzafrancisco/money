@@ -225,6 +225,22 @@ describe('automatic historical valuation backfill', () => {
     expect(s.missingPrices).toEqual([]);
   });
 
+  it('looks a closed historical position up only over the dates it was held', async () => {
+    const requestsBefore = t.prices.dailyCloseRequests.length;
+    await record(us.id, { type: 'BUY', date: '2019-07-01', symbol: 'SHORTCO', currency: 'USD', quantity: '2', unitPrice: '10', fees: '0' });
+    await record(us.id, { type: 'SELL', date: '2019-07-15', symbol: 'SHORTCO', currency: 'USD', quantity: '2', unitPrice: '12', fees: '0' });
+    await drain();
+
+    const asked = t.prices.dailyCloseRequests.slice(requestsBefore).filter((r) => r.symbol === 'SHORTCO');
+    expect(asked.length).toBeGreaterThan(0);
+    // Last held 2019-07-14; only the carry window (7 days) past it, not the years to today
+    expect(asked.every((r) => r.from >= '2019-06-24' && r.to <= '2019-07-21')).toBe(true);
+    // Still a complete valuation for every day it was held, weekend included
+    const held = await history({ fromDate: '2019-07-01', toDate: '2019-07-14', include: 'holdings' });
+    expect(held.days.every((d) => d.complete)).toBe(true);
+    expect(held.days.every((d) => d.holdings!.some((h) => h.symbol === 'SHORTCO' && h.marketValue !== null))).toBe(true);
+  });
+
   it('recomputes deterministically: the same ledger and closes give the same figures', async () => {
     const strip = (days: Awaited<ReturnType<typeof history>>['days']) => days.map(({ computedAt: _computedAt, ...rest }) => rest);
     const before = strip((await history({ fromDate: '2020-01-01', toDate: '2020-03-31', include: 'holdings' })).days);

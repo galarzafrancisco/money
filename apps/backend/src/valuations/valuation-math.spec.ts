@@ -2,7 +2,7 @@ import { dec } from '../common/decimal';
 import type { LedgerEntry } from '../ledger/ledger.types';
 import type { DailyCloseSeries } from '../market-prices/market-price.port';
 import { settledThrough } from './valuation-job.service';
-import { positionsByDate, priceHolding } from './valuation-math';
+import { positionsByDate, priceHolding, priceWindows } from './valuation-math';
 
 let seq = 0;
 const deposit = (date: string, amount: string): LedgerEntry => ({ id: `d${++seq}`, date, sequence: seq, type: 'DEPOSIT', currency: 'USD', amount: dec(amount) });
@@ -17,6 +17,29 @@ const trade = (type: 'BUY' | 'SELL', date: string, quantity: string, unitPrice: 
   unitPrice: dec(unitPrice),
   fees: dec(0),
   total: dec(quantity).times(unitPrice),
+});
+
+describe('priceWindows', () => {
+  const dates = (from: string, to: string) => {
+    const out: string[] = [];
+    for (let d = new Date(`${from}T00:00:00Z`); d.toISOString().slice(0, 10) <= to; d.setUTCDate(d.getUTCDate() + 1)) out.push(d.toISOString().slice(0, 10));
+    return out;
+  };
+
+  it('looks a closed position up only around the dates it was held', () => {
+    const entries = [deposit('2019-01-01', '10000'), trade('BUY', '2019-04-02', '10', '20'), trade('SELL', '2019-06-03', '10', '30')];
+    const due = dates('2019-04-01', '2019-12-31');
+    const windows = priceWindows([{ byDate: positionsByDate(entries, due) }], due, 7, '2026-01-15');
+    // Held from 04-02 through 06-02; the sale day itself holds nothing
+    expect(windows.get('VOO')).toEqual({ from: '2019-03-26', to: '2019-06-09' });
+  });
+
+  it('never asks past today, and skips symbols not held on any date', () => {
+    const entries = [deposit('2026-01-01', '1000'), trade('BUY', '2026-01-12', '1', '100')];
+    const due = dates('2026-01-10', '2026-01-14');
+    expect(priceWindows([{ byDate: positionsByDate(entries, due) }], due, 7, '2026-01-15').get('VOO')).toEqual({ from: '2026-01-05', to: '2026-01-15' });
+    expect(priceWindows([{ byDate: positionsByDate(entries, ['2026-01-10']) }], ['2026-01-10'], 7, '2026-01-15').size).toBe(0);
+  });
 });
 
 describe('positionsByDate', () => {

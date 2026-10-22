@@ -47,11 +47,17 @@ export class PriceHistoryService {
   }
 
   async getSeries(symbols: readonly string[], range: { from: string; to: string }, now: Date): Promise<Map<string, SeriesResult>> {
+    return this.getSeriesByRange(new Map(symbols.map((symbol) => [symbol, range])), now);
+  }
+
+  /** Like getSeries, with a range of its own for each symbol (e.g. only the dates it was held) */
+  async getSeriesByRange(ranges: ReadonlyMap<string, { from: string; to: string }>, now: Date): Promise<Map<string, SeriesResult>> {
     const results = new Map<string, SeriesResult>();
     // The provider wrapper limits concurrency globally; this only bounds the queue
-    const queue = [...new Set(symbols)];
+    const queue = [...ranges.keys()];
     const worker = async () => {
       for (let symbol = queue.shift(); symbol !== undefined; symbol = queue.shift()) {
+        const range = ranges.get(symbol)!;
         results.set(symbol, await this.withLock(symbol, () => this.getOne(symbol, range, now)));
       }
     };
