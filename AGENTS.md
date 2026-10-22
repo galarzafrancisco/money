@@ -15,13 +15,19 @@ services sit behind a REST API (`/api`) and an MCP server (`/mcp`).
 - Money **only records and tracks**. Deposits, withdrawals, transfers, FX
   conversions, buys, sells and dividends are records of things that already
   happened elsewhere. They are entered by hand or sent by external automation.
-- Money has **no banking or brokerage integrations**. It never moves real money,
-  never contacts a bank or broker, and never places trades. Do not add code,
-  endpoints, tools, wording or dependencies that suggest otherwise.
+- Money has **no banking or brokerage integrations**, with **one approved,
+  narrow exception: read-only Up! bank-data import** (see
+  [apps/backend/docs/up-integration.md](apps/backend/docs/up-integration.md)).
+  It may read a user's Up accounts and transactions with their own personal
+  access token and receive Up's webhooks. It must never move money, make
+  payments or transfers, change accounts at Up, or place trades. Any other
+  banking or brokerage integration, and any write action towards a bank,
+  needs explicit approval first. Imported Up records are kept apart from the
+  manual ledger and never rewritten into it.
 - The external automation that sends records is **outside this project's
   implementation scope**.
-- **Market-price lookups are in scope**. They are the only outbound calls the
-  backend makes.
+- **Market-price lookups and the read-only Up! import are in scope**. They are
+  the only outbound calls the backend makes.
 - Authentication is **federated to Taico**. Money has no local login, passwords
   or sign-up.
 - The web app signs in through the backend (`/auth/*`, a BFF with HttpOnly cookie
@@ -79,6 +85,7 @@ apps/
 ├── backend/   @money/backend: NestJS 11, TypeORM, Postgres/PGlite, MCP SDK, zod, Jest; writes openapi.json
 └── web/       @money/web: React 19 + Vite web app (accounts, holdings, recording activity), Vitest
 packages/
+├── up-mock/   up-bank-mock: offline mock of the Up! API and webhooks for dev and tests (publishable, no Money code)
 └── client/    @money/client: REST client generated from openapi.json by @taico/openapi-sdkgen (build output)
 install/
 └── manifests/ Kustomize base + overlays/main, copied to spark-ops by CI (docs/deployment.md)

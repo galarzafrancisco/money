@@ -32,6 +32,11 @@ generator has no `oneOf`, so the per-type rules below are enforced by the
 service. The details are in
 [docs/architecture/api-clients.md](../../../docs/architecture/api-clients.md).
 
+## Up! import
+
+The read-only Up! import (`/api/up/*`, `*_up_*` MCP tools, and the provider webhook
+`POST /api/v1/webhooks/up`) is described in [up-integration.md](up-integration.md).
+
 ## Web app
 
 After a build, the backend serves `apps/web/dist` (or `WEB_DIST_DIR`) at `/`.

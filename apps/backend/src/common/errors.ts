@@ -43,3 +43,15 @@ export class UpstreamError extends DomainError {
   readonly code = 'upstream_unavailable';
   readonly httpStatus = 502;
 }
+
+/** A feature that this deployment has not been configured for (e.g. a missing encryption key) */
+export class NotConfiguredError extends DomainError {
+  readonly code = 'not_configured';
+  readonly httpStatus = 503;
+}
+
+/** The credential a user gave for an external provider was refused */
+export class CredentialRejectedError extends DomainError {
+  readonly code = 'credential_rejected';
+  readonly httpStatus = 422;
+}

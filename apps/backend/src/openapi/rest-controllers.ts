@@ -7,6 +7,7 @@ import { PortfolioController } from '../portfolio/portfolio.controller';
 import { ReportsController } from '../reports/reports.controller';
 import { TransactionsController } from '../transactions/transactions.controller';
 import { TransfersController } from '../transfers/transfers.controller';
+import { UpController } from '../up/up.controller';
 import { ValuationsController } from '../valuations/valuations.controller';
 
 /**
@@ -23,4 +24,5 @@ export const REST_CONTROLLERS: readonly Type[] = [
   DashboardController,
   TransfersController,
   ValuationsController,
+  UpController,
 ];
