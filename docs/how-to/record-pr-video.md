@@ -52,8 +52,9 @@ doesn't need `--no-sandbox`.
    npm run demo:record -- scripts/demos/sign-in-page.mjs --out /tmp/sign-in-page.mp4
    ```
 
-   Options: `--base-url` (default `http://localhost:4180`, or `DEMO_BASE_URL`)
-   and `--headed`. The script records 1280×720 WebM, converts it to H.264 MP4,
+   Option: `--base-url` (default `http://localhost:4180`, or `DEMO_BASE_URL`).
+   Recording is always headless. Only the headless shell is installed, and
+   the video captures the page either way. The script records 1280×720 WebM, converts it to H.264 MP4,
    and re-encodes at higher CRF until the file is under about 9.5 MB. Without
    `--out` it writes to the OS temp directory, outside the repo.
 

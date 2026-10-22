@@ -2,7 +2,7 @@
 // Records a browser walk-through of the running app as an MP4 for PR evidence.
 // See docs/how-to/record-pr-video.md.
 //
-//   npm run demo:record -- scripts/demos/sign-in-page.mjs [--out file.mp4] [--base-url URL] [--headed]
+//   npm run demo:record -- scripts/demos/sign-in-page.mjs [--out file.mp4] [--base-url URL]
 //
 // A scenario is a module whose default export is `async (page, { baseUrl, pause }) => {}`.
 // Playwright records WebM, then ffmpeg turns it into H.264 MP4 and keeps
@@ -23,13 +23,12 @@ const { values, positionals } = parseArgs({
   options: {
     out: { type: 'string' },
     'base-url': { type: 'string', default: process.env.DEMO_BASE_URL ?? 'http://localhost:4180' },
-    headed: { type: 'boolean', default: false },
   },
 });
 
 const scenarioPath = positionals[0];
 if (!scenarioPath) {
-  console.error('usage: npm run demo:record -- <scenario.mjs> [--out file.mp4] [--base-url URL] [--headed]');
+  console.error('usage: npm run demo:record -- <scenario.mjs> [--out file.mp4] [--base-url URL]');
   process.exit(2);
 }
 
@@ -52,7 +51,7 @@ mkdirSync(dirname(out), { recursive: true });
 
 let browser;
 try {
-  browser = await chromium.launch({ headless: !values.headed });
+  browser = await chromium.launch() // headless shell; the Spark has no display;
 } catch (error) {
   console.error(String(error.message).split('\n')[0]);
   console.error('Install the browser and ffmpeg builds this Playwright version pins:');
