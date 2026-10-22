@@ -62,11 +62,14 @@ describe('store-first price history and as-of valuations', () => {
         { from: '2025-06-07', to: '2025-06-13' },
       ]);
       expect(wider.get('CACHE2')!.series!.closes).toHaveLength(15);
-      // A disjoint later range fills the gap in one request, keeping the stored range contiguous
+      // A disjoint later range is stored apart: the dates between are not fetched
       await prices.getSeries(['CACHE2'], { from: '2025-06-18', to: '2025-06-19' }, now);
-      expect(requests('CACHE2').at(-1)).toEqual({ from: '2025-06-14', to: '2025-06-19' });
+      expect(requests('CACHE2').at(-1)).toEqual({ from: '2025-06-18', to: '2025-06-19' });
+      expect(await storedRows('CACHE2')).toBe(17);
+      // Asking for the whole span fetches only the gap, and the ranges merge
       await prices.getSeries(['CACHE2'], { from: '2025-05-26', to: '2025-06-19' }, now);
-      expect(requests('CACHE2')).toHaveLength(4);
+      expect(requests('CACHE2').at(-1)).toEqual({ from: '2025-06-14', to: '2025-06-17' });
+      expect(requests('CACHE2')).toHaveLength(5);
       expect(await storedRows('CACHE2')).toBe(19);
     });
 

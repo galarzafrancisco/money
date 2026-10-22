@@ -98,9 +98,9 @@ runs are cheap. A run:
    dates it is held, widened by `VALUATION_MAX_CARRY_DAYS` on both sides (a
    previous close to carry, a later session that shows a day was a holiday)
    and never past today. A position sold in 2021 is not looked up for the
-   years after the sale. One exception: the store keeps one contiguous range
-   per symbol, so a symbol sold and bought again later is stored across the
-   gap between the two holdings too.
+   years after the sale. A symbol sold and bought again later is looked up
+   over each holding stretch only; the price store keeps the covered ranges
+   apart.
 
 **Date D is due** at D+1 `VALUATION_SETTLE_HOUR_UTC`:00 UTC (default 06:00).
 By then the US close of D (20:00/21:00 UTC) and the ASX close (05:00/06:00 UTC

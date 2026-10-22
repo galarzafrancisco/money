@@ -33,35 +33,41 @@ export function positionsByDate(entries: readonly LedgerEntry[], dates: readonly
 }
 
 /**
- * The closes each symbol needs to value `dates`: from `carryDays` before the
- * first date it is held (to carry a previous close over a weekend or
- * holiday) to `carryDays` after the last (so a later session shows that a
- * day without one was a holiday), and never past `today`. A position closed
- * years ago is not looked up for the years after its sale.
+ * The closes each symbol needs to value `dates`: around each stretch of
+ * dates it is held, from `carryDays` before (to carry a previous close over
+ * a weekend or holiday) to `carryDays` after (so a later session shows that
+ * a day without one was a holiday), never past `today`. Stretches whose
+ * margins touch are merged; those years apart stay separate windows, so a
+ * position sold and bought back later is not looked up while not held.
  */
 export function priceWindows(
   positions: readonly { byDate: Map<string, Position[]> }[],
   dates: readonly string[],
   carryDays: number,
   today: string,
-): Map<string, { from: string; to: string }> {
-  const held = new Map<string, { first: string; last: string }>();
+): Map<string, { from: string; to: string }[]> {
+  const heldOn = new Map<string, Set<string>>();
   for (const { byDate } of positions) {
     for (const date of dates) {
       for (const { symbol } of byDate.get(date) ?? []) {
-        const span = held.get(symbol);
-        if (!span) held.set(symbol, { first: date, last: date });
-        else {
-          if (date < span.first) span.first = date;
-          if (date > span.last) span.last = date;
-        }
+        const set = heldOn.get(symbol) ?? new Set<string>();
+        set.add(date);
+        heldOn.set(symbol, set);
       }
     }
   }
-  const windows = new Map<string, { from: string; to: string }>();
-  for (const [symbol, { first, last }] of held) {
-    const to = addDays(last, carryDays);
-    windows.set(symbol, { from: addDays(first, -carryDays), to: to < today ? to : today });
+  const windows = new Map<string, { from: string; to: string }[]>();
+  for (const [symbol, held] of heldOn) {
+    const merged: { from: string; to: string }[] = [];
+    for (const date of [...held].sort()) {
+      const from = addDays(date, -carryDays);
+      const raw = addDays(date, carryDays);
+      const to = raw < today ? raw : today;
+      const last = merged[merged.length - 1];
+      if (last && from <= addDays(last.to, 1)) last.to = to > last.to ? to : last.to;
+      else merged.push({ from, to });
+    }
+    windows.set(symbol, merged);
   }
   return windows;
 }

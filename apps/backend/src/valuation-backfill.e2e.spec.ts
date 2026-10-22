@@ -241,6 +241,23 @@ describe('automatic historical valuation backfill', () => {
     expect(held.days.every((d) => d.holdings!.some((h) => h.symbol === 'SHORTCO' && h.marketValue !== null))).toBe(true);
   });
 
+  it('does not look a position up for the years between selling it and buying it back', async () => {
+    const requestsBefore = t.prices.dailyCloseRequests.length;
+    await record(us.id, { type: 'BUY', date: '2019-07-01', symbol: 'REBUYCO', currency: 'USD', quantity: '2', unitPrice: '10', fees: '0' });
+    await record(us.id, { type: 'SELL', date: '2019-07-15', symbol: 'REBUYCO', currency: 'USD', quantity: '2', unitPrice: '12', fees: '0' });
+    await record(us.id, { type: 'BUY', date: '2024-03-04', symbol: 'REBUYCO', currency: 'USD', quantity: '1', unitPrice: '20', fees: '0' });
+    await drain();
+
+    const asked = t.prices.dailyCloseRequests.slice(requestsBefore).filter((r) => r.symbol === 'REBUYCO');
+    expect(asked.length).toBeGreaterThan(0);
+    // Nothing is requested inside the unheld stretch (carry margins of 7 days each side)
+    expect(asked.every((r) => r.to <= '2019-07-21' || r.from >= '2024-02-25')).toBe(true);
+    for (const [fromDate, toDate] of [['2019-07-01', '2019-07-14'], ['2024-03-04', '2024-03-20']]) {
+      const held = await history({ fromDate, toDate, include: 'holdings' });
+      expect(held.days.every((d) => d.complete && d.holdings!.some((h) => h.symbol === 'REBUYCO' && h.marketValue !== null))).toBe(true);
+    }
+  });
+
   it('recomputes deterministically: the same ledger and closes give the same figures', async () => {
     const strip = (days: Awaited<ReturnType<typeof history>>['days']) => days.map(({ computedAt: _computedAt, ...rest }) => rest);
     const before = strip((await history({ fromDate: '2020-01-01', toDate: '2020-03-31', include: 'holdings' })).days);

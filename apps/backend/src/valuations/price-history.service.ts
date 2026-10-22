@@ -47,11 +47,11 @@ export class PriceHistoryService {
   }
 
   async getSeries(symbols: readonly string[], range: { from: string; to: string }, now: Date): Promise<Map<string, SeriesResult>> {
-    return this.getSeriesByRange(new Map(symbols.map((symbol) => [symbol, range])), now);
+    return this.getSeriesByRange(new Map(symbols.map((symbol) => [symbol, [range]])), now);
   }
 
-  /** Like getSeries, with a range of its own for each symbol (e.g. only the dates it was held) */
-  async getSeriesByRange(ranges: ReadonlyMap<string, { from: string; to: string }>, now: Date): Promise<Map<string, SeriesResult>> {
+  /** Like getSeries, with ranges of its own for each symbol (e.g. only the stretches it was held); nothing between them is fetched */
+  async getSeriesByRange(ranges: ReadonlyMap<string, readonly { from: string; to: string }[]>, now: Date): Promise<Map<string, SeriesResult>> {
     const results = new Map<string, SeriesResult>();
     // The provider wrapper limits concurrency globally; this only bounds the queue
     const queue = [...ranges.keys()];
@@ -74,23 +74,29 @@ export class PriceHistoryService {
     await this.withLock(symbol, () => this.store.forgetCoverageFrom(symbol, this.provider.name, fromDate));
   }
 
-  private async getOne(symbol: string, range: { from: string; to: string }, now: Date): Promise<SeriesResult> {
+  private async getOne(symbol: string, requested: readonly { from: string; to: string }[], now: Date): Promise<SeriesResult> {
     const source = this.provider.name;
     const today = now.toISOString().slice(0, 10);
     // Exchanges east of UTC are at most a day ahead
-    const to = range.to < addDays(today, 1) ? range.to : addDays(today, 1);
-    if (range.from > to) return { error: `No history can exist after ${to}` };
+    const limit = addDays(today, 1);
+    const wanted = requested.map((r) => ({ from: r.from, to: r.to < limit ? r.to : limit })).filter((r) => r.from <= r.to);
+    if (wanted.length === 0) return { error: `No history can exist after ${limit}` };
+    const range = { from: wanted.reduce((m, r) => (r.from < m ? r.from : m), wanted[0].from), to: wanted.reduce((m, r) => (r.to > m ? r.to : m), wanted[0].to) };
+    const to = range.to;
 
     let meta = await this.store.meta(symbol, source);
     const failures: string[] = [];
     let unknown = false;
     let fetched: DailyCloseSeries | null = null;
-    for (const gap of this.gaps(meta, range.from, to)) {
+    fetching: for (const want of wanted) {
+      // Each saved fetch changes what is covered, so look again for every window
+      if (want !== wanted[0]) meta = await this.store.meta(symbol, source);
+      for (const gap of this.gaps(meta, want.from, want.to)) {
       try {
         const series = await this.provider.getDailyCloses(symbol, { from: gap.from, to: gap.to }, now);
         if (!series) {
           unknown = true;
-          break;
+          break fetching;
         }
         fetched = series;
         const problem = validate(series, symbol, gap);
@@ -106,7 +112,8 @@ export class PriceHistoryService {
         }
       } catch (error) {
         failures.push(error instanceof Error ? error.message : String(error));
-        break;
+        break fetching;
+      }
       }
     }
     if (failures.length > 0 || unknown) meta = await this.store.meta(symbol, source);
@@ -127,25 +134,26 @@ export class PriceHistoryService {
     return { series: stored ?? (fetched ? { ...fetched, splits: [], closes: [] } : null) };
   }
 
-  /** The date ranges outside the stored range, extended so the stored range stays contiguous */
+  /** The parts of from..to outside every stored range */
   private gaps(meta: StoredSeriesMeta | null, from: string, to: string): Gap[] {
     const raw: Gap[] = [];
-    if (!meta) raw.push({ from, to, lower: false });
-    else {
-      if (from < meta.coveredFrom) raw.push({ from, to: addDays(meta.coveredFrom, -1), lower: true });
-      if (to > meta.coveredTo) raw.push({ from: addDays(meta.coveredTo, 1), to, lower: false });
+    let cursor = from;
+    for (const covered of meta?.covered ?? []) {
+      if (covered.to < cursor) continue;
+      if (covered.from > to) break;
+      if (covered.from > cursor) raw.push({ from: cursor, to: addDays(covered.from, -1), lower: true });
+      cursor = addDays(covered.to, 1);
     }
+    // Past the last stored range there is no later session to prove a holiday
+    if (cursor <= to) raw.push({ from: cursor, to, lower: false });
     const max = this.config.marketPrices.maxFetchDays;
     const gaps: Gap[] = [];
     // A weekend after the stored range has no session anywhere Money looks: nothing to ask for yet
     for (const gap of raw.filter((g) => g.lower || dateRange(g.from, g.to).some((d) => !isWeekend(d)))) {
-      // Lower gaps are fetched newest first so each part stays adjacent to the stored range
-      const parts: Gap[] = [];
       for (let start = gap.from; start <= gap.to; start = addDays(start, max)) {
         const end = addDays(start, max - 1);
-        parts.push({ from: start, to: end < gap.to ? end : gap.to, lower: gap.lower });
+        gaps.push({ from: start, to: end < gap.to ? end : gap.to, lower: gap.lower });
       }
-      gaps.push(...(gap.lower ? parts.reverse() : parts));
     }
     return gaps;
   }

@@ -11,7 +11,9 @@ export type StoredSeriesMeta = {
   exchangeTimezone: string;
   isMock: boolean;
   adjustment: string;
-  /** Every session from coveredFrom to coveredTo is stored (a date with no row had no session) */
+  /** Every session within each of these ranges is stored (a date with no row had no session); ascending, disjoint, not touching */
+  covered: { from: string; to: string }[];
+  /** Earliest and latest covered dates; dates in between may not be stored */
   coveredFrom: string;
   coveredTo: string;
   fetchedAt: string;
@@ -51,7 +53,15 @@ export class PriceStoreRepository {
     );
     const r = rows[0];
     if (!r) return null;
+    const covered: { from: string; to: string }[] = (
+      await this.uow.manager.query(
+        `SELECT to_char(covered_from, 'YYYY-MM-DD') AS "from", to_char(covered_to, 'YYYY-MM-DD') AS "to"
+           FROM market_price_coverage WHERE symbol = $1 AND source = $2 ORDER BY covered_from`,
+        [symbol, source],
+      )
+    ).map((c: { from: string; to: string }) => ({ from: c.from, to: c.to }));
     return {
+      covered: covered.length > 0 ? covered : [{ from: r.covered_from, to: r.covered_to }],
       symbol: r.symbol,
       source: r.source,
       currency: r.currency,
@@ -112,6 +122,7 @@ export class PriceStoreRepository {
       if (existingMeta[0] && existingMeta[0].currency !== series.currency) {
         // The provider changed the series' currency: what is stored is no longer comparable
         await manager.query(`DELETE FROM market_price_series WHERE symbol = $1 AND source = $2`, [series.symbol, series.source]);
+        await manager.query(`DELETE FROM market_price_coverage WHERE symbol = $1 AND source = $2`, [series.symbol, series.source]);
         await manager.query(`DELETE FROM market_price_closes WHERE symbol = $1 AND source = $2`, [series.symbol, series.source]);
       }
       const changed = await this.upsertCloses(manager, series);
@@ -123,18 +134,21 @@ export class PriceStoreRepository {
         );
       }
       if (covered && covered.from <= covered.to) {
-        await manager.query(
-          `INSERT INTO market_price_series AS s (symbol, source, currency, exchange_timezone, is_mock, adjustment, covered_from, covered_to)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-           ON CONFLICT (symbol, source) DO UPDATE SET
-             currency = EXCLUDED.currency, exchange_timezone = EXCLUDED.exchange_timezone, is_mock = EXCLUDED.is_mock,
-             adjustment = EXCLUDED.adjustment, fetched_at = now(),
-             covered_from = CASE WHEN EXCLUDED.covered_from <= s.covered_to + 1 AND EXCLUDED.covered_to >= s.covered_from - 1
-                                 THEN LEAST(s.covered_from, EXCLUDED.covered_from) ELSE EXCLUDED.covered_from END,
-             covered_to = CASE WHEN EXCLUDED.covered_from <= s.covered_to + 1 AND EXCLUDED.covered_to >= s.covered_from - 1
-                               THEN GREATEST(s.covered_to, EXCLUDED.covered_to) ELSE EXCLUDED.covered_to END`,
-          [series.symbol, series.source, series.currency, series.exchangeTimezone, series.isMock, series.adjustment, covered.from, covered.to],
+        // Ranges touching the new one merge with it; others stay apart
+        const params = [series.symbol, series.source, covered.from, covered.to];
+        const touching: { from: string; to: string }[] = await manager.query(
+          `SELECT to_char(covered_from, 'YYYY-MM-DD') AS "from", to_char(covered_to, 'YYYY-MM-DD') AS "to" FROM market_price_coverage
+            WHERE symbol = $1 AND source = $2 AND covered_from <= $4::date + 1 AND covered_to >= $3::date - 1`,
+          params,
         );
+        await manager.query(
+          `DELETE FROM market_price_coverage WHERE symbol = $1 AND source = $2 AND covered_from <= $4::date + 1 AND covered_to >= $3::date - 1`,
+          params,
+        );
+        const from = [covered.from, ...touching.map((t) => t.from)].sort()[0];
+        const to = [covered.to, ...touching.map((t) => t.to)].sort().reverse()[0];
+        await manager.query(`INSERT INTO market_price_coverage (symbol, source, covered_from, covered_to) VALUES ($1, $2, $3, $4)`, [series.symbol, series.source, from, to]);
+        await this.syncSeries(manager, series);
       }
       return changed;
     });
@@ -143,9 +157,29 @@ export class PriceStoreRepository {
   /** Forgets that dates from `fromDate` are stored, so the next lookup fetches them again (and spots corrections) */
   async forgetCoverageFrom(symbol: string, source: string, fromDate: string): Promise<void> {
     await this.uow.run(async (manager) => {
-      await manager.query(`DELETE FROM market_price_series WHERE symbol = $1 AND source = $2 AND covered_from >= $3`, [symbol, source, fromDate]);
-      await manager.query(`UPDATE market_price_series SET covered_to = $3::date - 1 WHERE symbol = $1 AND source = $2 AND covered_to >= $3`, [symbol, source, fromDate]);
+      await manager.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`market_price_series:${source}:${symbol}`]);
+      await manager.query(`DELETE FROM market_price_coverage WHERE symbol = $1 AND source = $2 AND covered_from >= $3`, [symbol, source, fromDate]);
+      await manager.query(`UPDATE market_price_coverage SET covered_to = $3::date - 1 WHERE symbol = $1 AND source = $2 AND covered_to >= $3`, [symbol, source, fromDate]);
+      const [envelope] = await manager.query(`SELECT to_char(min(covered_from), 'YYYY-MM-DD') AS f, to_char(max(covered_to), 'YYYY-MM-DD') AS t FROM market_price_coverage WHERE symbol = $1 AND source = $2`, [symbol, source]);
+      if (!envelope?.f) await manager.query(`DELETE FROM market_price_series WHERE symbol = $1 AND source = $2`, [symbol, source]);
+      else await manager.query(`UPDATE market_price_series SET covered_from = $3, covered_to = $4 WHERE symbol = $1 AND source = $2`, [symbol, source, envelope.f, envelope.t]);
     });
+  }
+
+  /** The series row carries the metadata and the envelope of the covered ranges */
+  private async syncSeries(manager: EntityManager, series: DailyCloseSeries): Promise<void> {
+    const [envelope] = await manager.query(
+      `SELECT to_char(min(covered_from), 'YYYY-MM-DD') AS f, to_char(max(covered_to), 'YYYY-MM-DD') AS t FROM market_price_coverage WHERE symbol = $1 AND source = $2`,
+      [series.symbol, series.source],
+    );
+    await manager.query(
+      `INSERT INTO market_price_series AS s (symbol, source, currency, exchange_timezone, is_mock, adjustment, covered_from, covered_to)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       ON CONFLICT (symbol, source) DO UPDATE SET
+         currency = EXCLUDED.currency, exchange_timezone = EXCLUDED.exchange_timezone, is_mock = EXCLUDED.is_mock,
+         adjustment = EXCLUDED.adjustment, fetched_at = now(), covered_from = EXCLUDED.covered_from, covered_to = EXCLUDED.covered_to`,
+      [series.symbol, series.source, series.currency, series.exchangeTimezone, series.isMock, series.adjustment, envelope.f, envelope.t],
+    );
   }
 
   private async upsertCloses(manager: EntityManager, series: DailyCloseSeries): Promise<string[]> {
