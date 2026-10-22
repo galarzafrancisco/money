@@ -11,7 +11,7 @@ Repository-wide design guides and review checklists. Domain behaviour lives in
 | [review-guides/](review-guides/) | Objective checklists: controller, service, schema, entity, error, mcp, api-client, and guides for docs |
 | [best-practices/node.md](best-practices/node.md), [best-practices/web.md](best-practices/web.md) | Project setup conventions |
 | [ui/guidelines.md](ui/guidelines.md), [ui/review.md](ui/review.md) | UI architecture and style rules, and the mandatory UI review checklist |
-| [ci.md](ci.md) | CI workflow: triggers, Postgres/PGlite test matrix, image tags, spark-ops deployment PRs, secrets |
+| [ci.md](ci.md) | CI workflow: triggers, Postgres + PGlite test runs, image tags, spark-ops deployment PRs, secrets |
 | [deployment.md](deployment.md) | Kubernetes manifests, the spark-ops/Argo CD flow, configuration, secrets, the PostgreSQL database with backup and restore notes, and outstanding prerequisites |
 
 ## Provenance

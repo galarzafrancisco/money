@@ -27,16 +27,13 @@ env:
 
 jobs:
   test:
-    # Both database back ends run the full suite. Postgres covers the
+    # One job builds and typechecks once, then runs the backend suite against
+    # Postgres and PGlite at the same time. Postgres covers the
     # concurrency/locking/trigger tests that are skipped on PGlite; PGlite is
-    # what development and the temporary in-memory deployment use.
-    name: Build and test (${{ matrix.database }})
+    # what development and the in-memory mode use. Both are required.
+    name: Build and test
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        database: [postgres, pglite]
+    timeout-minutes: 20
 
     services:
       postgres:
@@ -53,10 +50,6 @@ jobs:
           --health-timeout 3s
           --health-retries 20
 
-    env:
-      # Admin connection: each test file creates and drops its own database
-      TEST_POSTGRES_URL: ${{ matrix.database == 'postgres' && 'postgresql://money:money_ci@127.0.0.1:5432/postgres' || '' }}
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
@@ -69,15 +62,17 @@ jobs:
           cache-dependency-path: package-lock.json
 
       - name: Install dependencies
-        run: npm ci
+        # --no-audit: the audit request sometimes hangs until npm's 5-minute
+        # fetch timeout (see docs/ci.md)
+        run: npm ci --no-audit --no-fund
 
       - name: Restore nx cache
         uses: actions/cache@v4
         with:
           path: .nx/cache
-          key: nx-${{ runner.os }}-${{ matrix.database }}-${{ github.sha }}
+          key: nx-${{ runner.os }}-${{ github.sha }}
           restore-keys: |
-            nx-${{ runner.os }}-${{ matrix.database }}-
+            nx-${{ runner.os }}-
 
       - name: Build
         run: npm run build
@@ -88,10 +83,24 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-      - name: Test backend
-        # Each test file boots its own app and database; two workers keep
-        # memory bounded (see docs/ci.md)
-        run: npm -w @money/backend test -- --maxWorkers=2 --ci
+      - name: Test backend (Postgres and PGlite, in parallel)
+        # Each test file boots its own app and database; two workers per run
+        # keep memory bounded (see docs/ci.md). TEST_POSTGRES_URL is the admin
+        # connection: each test file creates and drops its own database.
+        run: |
+          set -uo pipefail
+          TEST_POSTGRES_URL=postgresql://money:money_ci@127.0.0.1:5432/postgres \
+            npm -w @money/backend test -- --maxWorkers=2 --ci > test-postgres.log 2>&1 &
+          postgres=$!
+          TEST_POSTGRES_URL='' npm -w @money/backend test -- --maxWorkers=2 --ci > test-pglite.log 2>&1 &
+          pglite=$!
+          wait "$postgres"; postgres_status=$?
+          wait "$pglite"; pglite_status=$?
+          echo "::group::Backend tests on Postgres (exit $postgres_status)"; cat test-postgres.log; echo "::endgroup::"
+          echo "::group::Backend tests on PGlite (exit $pglite_status)"; cat test-pglite.log; echo "::endgroup::"
+          [ "$postgres_status" = 0 ] || { echo "::error::Backend tests failed on Postgres"; tail -80 test-postgres.log; }
+          [ "$pglite_status" = 0 ] || { echo "::error::Backend tests failed on PGlite"; tail -80 test-pglite.log; }
+          [ "$postgres_status" = 0 ] && [ "$pglite_status" = 0 ]
 
       - name: Test web app
         # Vitest + Testing Library against a stand-in for the generated client
@@ -100,9 +109,10 @@ jobs:
   image:
     # Runs untrusted PR code, so it gets a read-only token. Publishing is the
     # separate main-only `publish` job, the only one with packages: write.
+    # Runs in parallel with `test`: the Dockerfile builds from source on its
+    # own, and `publish` waits for both.
     name: Build container image
     runs-on: ubuntu-24.04-arm
-    needs: test
     if: github.event_name != 'release'
     timeout-minutes: 30
     permissions:
@@ -278,7 +288,7 @@ jobs:
 
       - name: Install dependencies
         # Only needs `yaml` for the security check; skip lifecycle scripts
-        run: npm ci --ignore-scripts
+        run: npm ci --ignore-scripts --no-audit --no-fund
 
       - name: Render as the deploy job and spark-ops will
         # Same image pin as `deploy`, on a copy, then build the overlay Argo CD syncs
@@ -302,7 +312,7 @@ jobs:
     # pull_request events, so PR code cannot obtain a GHCR-writable token.
     name: Push container image
     runs-on: ubuntu-24.04-arm
-    needs: image
+    needs: [test, image]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     timeout-minutes: 30
     permissions:

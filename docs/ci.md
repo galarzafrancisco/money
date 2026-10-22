@@ -6,7 +6,7 @@ pull request on `galarzafrancisco/spark-ops` that deploys it.
 
 ## Triggers and jobs
 
-| Event | `test` (postgres, pglite) | `image` | `manifests` | `publish` | `release-tag` | `deploy` |
+| Event | `test` | `image` | `manifests` | `publish` | `release-tag` | `deploy` |
 |---|---|---|---|---|---|---|
 | Pull request to `main` or `feature/**` | ✔ | build + smoke test | render | | | |
 | Push to `main` (a merge) | ✔ | build + smoke test | render | ✔ push to GHCR | | ✔ |
@@ -18,28 +18,32 @@ never cancelled, so every merge reaches spark-ops.
 
 ### `test`
 
-The suite runs twice, as a matrix:
+One job installs, builds, runs `npm run verify:auth` and typechecks **once**,
+then runs the backend Jest suite twice **at the same time**:
 
-- **postgres**: a `postgres:16-alpine` service, with `TEST_POSTGRES_URL` set to
-  its admin connection. Production runs PostgreSQL 16 too. Each test file
-  creates and drops its own database. Only
-  this leg runs the concurrency, lock-ordering and trigger tests, which are
-  skipped on PGlite.
-- **pglite**: no `TEST_POSTGRES_URL`. Each test file gets an in-memory PGlite in a
-  child process. Development uses this back end, and so does the
+- **Postgres**: against a `postgres:16-alpine` service, with `TEST_POSTGRES_URL`
+  set to its admin connection. Production runs PostgreSQL 16 too. Each test file
+  creates and drops its own database. Only this run covers the concurrency,
+  lock-ordering and trigger tests, which are skipped on PGlite.
+- **PGlite**: with an empty `TEST_POSTGRES_URL`. Each test file gets an in-memory
+  PGlite in a child process. Development uses this back end, and so does the
   `DATABASE_MODE=memory` runtime.
 
-Both legs are required. The Postgres leg does not depend on how production is
-deployed: keep it when the runtime changes.
+Both runs are required, and the step fails if either one fails. Each run's
+output is in its own collapsible log group. The Postgres run does not depend on
+how production is deployed: keep it when the runtime changes. The two runs used
+to be separate matrix jobs, which installed and built everything twice for
+no benefit.
 
-Each leg runs `npm ci`, `npm run build`, `npm run verify:auth`, `npm run typecheck`
-and the backend Jest suite. Jest runs with
-`--maxWorkers=2`. Every test file boots a full app and its own database, and
-unbounded parallelism has run out of memory on large machines.
+Each run uses `--maxWorkers=2`. Every test file boots a full app and its own
+database, and unbounded parallelism has run out of memory on large machines.
+Then the web app's Vitest suite runs.
 
 ### `image`
 
-This job builds the [`Dockerfile`](../Dockerfile), a two-stage `node:24-alpine`
+This job runs **in parallel with `test`**, not after it: the Dockerfile builds
+from source on its own, and `publish` needs both jobs, so nothing is pushed
+unless the tests pass. It builds the [`Dockerfile`](../Dockerfile), a two-stage `node:24-alpine`
 build that runs as uid/gid `1000:1000` (the base image's `node` user, given by
 number) and listens on `PORT=4180`. It first checks that the image `USER` is
 numeric and non-zero and still maps to `node`: the kubelet refuses
@@ -81,7 +85,7 @@ See [deployment.md](deployment.md).
 
 ### `publish`
 
-Only on pushes to `main`, after `image` passes, this job rebuilds the same
+Only on pushes to `main`, after `test` and `image` pass, this job rebuilds the same
 commit (layers come from the GitHub Actions build cache that `image` filled), logs
 in to GHCR and pushes the tags below. It is the only branch-build job with
 `packages: write`, and it never runs for `pull_request` events, so a pull
@@ -141,6 +145,23 @@ The manifests live in `install/manifests` and are described in
 
 Because spark-ops auto-merges, a merge to `main` that changes `install/manifests`
 **deploys immediately**. Review manifest changes with that in mind.
+
+## Keeping it fast
+
+A full run takes about 2–3 minutes. Most of the time it used to take went to:
+
+- **`npm audit` hangs.** `npm ci` audits by default, and the audit request to
+  the registry sometimes hangs until npm's 5-minute fetch timeout. The packages
+  are already installed by then, so the install looks stuck at the end. Every
+  `npm ci` in CI and in the `Dockerfile` passes `--no-audit --no-fund`. Keep those
+  flags on any new install step. Run `npm audit` on purpose when you want it.
+- **Duplicate work.** The suite used to run as a two-job matrix, and the image
+  was built only after the tests finished. Now there is one `test` job, and
+  `image` runs alongside it.
+
+The `image` job reuses Docker layers from the GitHub Actions cache, so the
+dependency layers are rebuilt only when `package-lock.json` or a
+`package.json` changes.
 
 ## Assumptions and known gaps
 
