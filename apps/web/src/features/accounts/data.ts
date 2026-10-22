@@ -6,7 +6,10 @@ import { queryKeys } from '../shared/queryKeys';
 /** Data access for accounts: the generated client only, behind React Query */
 export function useAccounts() {
   const { run } = useApi();
-  return useQuery({ queryKey: queryKeys.accounts, queryFn: ({ signal }) => run((c) => c.accounts.listAccounts({ signal })) });
+  return useQuery({ queryKey: queryKeys.accounts, queryFn: ({ signal }) => run((c) => c.accounts.listAccounts({ signal })),
+    // Imported Up accounts are shown by their own card and cannot take manual records
+    select: (all) => all.filter((a) => a.source !== 'up'),
+  });
 }
 
 export function useAccount(accountId: string) {

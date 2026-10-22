@@ -10,6 +10,8 @@ export function useTransactions(accountId: string, filter: { type?: TransactionT
   return useQuery({
     queryKey: queryKeys.transactions(accountId, filter),
     queryFn: ({ signal }) => run((c) => c.transactions.listTransactions({ accountId, type: filter.type, signal })),
+    // The record/edit screens only handle manual transactions
+    select: (all) => all.filter((t) => t.source !== 'up') as unknown as Transaction[],
   });
 }
 

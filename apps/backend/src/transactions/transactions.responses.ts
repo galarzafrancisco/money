@@ -54,3 +54,28 @@ export const transactionSchema = apiSchema(
 
 export const transactionListSchema = apiSchema('TransactionList', z.array(transactionSchema));
 export const deleteTransactionResultSchema = apiSchema('DeleteTransactionResult', z.object({ deleted: z.boolean() }));
+
+/** A transaction of any account, manual or imported from Up. Up rows are DEPOSIT/WITHDRAWAL by sign and carry the Up-specific fields below. */
+export const unifiedTransactionSchema = apiSchema(
+  'UnifiedTransaction',
+  z.object({
+    id: z.string(),
+    accountId: z.string(),
+    type: z.enum(TRANSACTION_TYPES),
+    date: z.string(),
+    createdAt: z.string(),
+    source: z.enum(['manual', 'up']),
+    sequence: z.number().int().optional().describe('Manual transactions only: order recorded within the date'),
+    description: z.string().nullable().optional(),
+    currency: z.string().nullable().optional(),
+    amount: decimalOut().nullable().optional(),
+    status: z.string().optional().describe('Up only'),
+    message: z.string().nullable().optional().describe('Up only'),
+    foreignCurrency: z.string().nullable().optional().describe('Up only'),
+    foreignAmount: decimalOut().nullable().optional().describe('Up only'),
+    settledAt: z.string().nullable().optional().describe('Up only'),
+    reconciliation: z.enum(['matched', 'unmatched']).optional().describe('Up only'),
+  }).catchall(z.unknown()),
+);
+
+export const unifiedTransactionListSchema = apiSchema('UnifiedTransactionList', z.array(unifiedTransactionSchema));

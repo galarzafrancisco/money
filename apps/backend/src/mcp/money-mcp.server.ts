@@ -4,6 +4,7 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import { createAccountSchema, updateAccountSchema } from '../accounts/accounts.schemas';
 import { AccountsService } from '../accounts/accounts.service';
+import { UnifiedAccountsService, listUnifiedAccountsShape } from '../accounts/unified-accounts.service';
 import { createCategorySchema, holdingCategorySchema, updateCategorySchema } from '../categories/categories.schemas';
 import { createAccountGroupSchema, updateAccountGroupSchema } from '../account-groups/account-groups.schemas';
 import { AccountGroupsService } from '../account-groups/account-groups.service';
@@ -56,6 +57,7 @@ const transferId = z.string().describe('Transfer ID (from list_transfers)');
 export class MoneyMcpServerFactory {
   constructor(
     private readonly accounts: AccountsService,
+    private readonly allAccounts: UnifiedAccountsService,
     private readonly transactions: TransactionsService,
     private readonly portfolio: PortfolioService,
     private readonly prices: MarketPricesService,
@@ -75,6 +77,7 @@ export class MoneyMcpServerFactory {
       {
         instructions:
           `Personal investment tracking for the signed-in user: named accounts, multi-currency cash, FX conversions, transfers between accounts, share buys and sells, dividends with withholding tax, cost bases per parcel, and gains. ${PERSONAL_TRACKING} ` +
+          'Imported Up bank accounts are accounts like any other: list_accounts, get_account and list_transactions include them (hidden ones too, with source "up"). Only get_accounts_report, get_categories_report and get_dashboard still cover the manual ledger only (they leave Up accounts out). list_up_accounts, list_up_transactions and list_account_groups give Up-specific detail. ' +
           'Amounts are decimal strings. Figures are not tax advice; see the notes returned by get_portfolio.',
       },
     );
@@ -95,8 +98,8 @@ export class MoneyMcpServerFactory {
 
     tool('whoami', 'The Money user the current access token maps to', read, {}, async () => user);
 
-    tool('list_accounts', 'List your accounts and subaccounts (flat; parentAccountId links a subaccount to its parent). get_accounts_report gives the tree with balances.', read, {}, () => this.accounts.list(user));
-    tool('get_account', 'Get one account', read, { accountId }, ({ accountId }) => this.accounts.get(user, accountId));
+    tool('list_accounts', 'List all your accounts and subaccounts, manual and Up-imported alike (flat; parentAccountId links a subaccount to its parent). Each has source ("manual" or "up"), visible and balances (cash per currency). Imported Up accounts are accounts like any other, including hidden ones (pass visibility to narrow). get_accounts_report gives the tree with holdings and valuations.', read, listUnifiedAccountsShape, (args) => this.allAccounts.list(user, args));
+    tool('get_account', 'Get one account (manual or imported from Up) with its cash balances', read, { accountId }, ({ accountId }) => this.allAccounts.get(user, accountId));
     tool(
       'create_account',
       'Create a named account (a tracking record, not a real bank or brokerage account). Give parentAccountId to make it a subaccount (bucket) of another account, e.g. "Term Deposit 1" under your bank account. Each subaccount has its own transactions.',
@@ -210,10 +213,10 @@ export class MoneyMcpServerFactory {
 
     tool(
       'list_transactions',
-      'List an account\'s transactions in ledger order (date, then order recorded)',
+      'List an account\'s transactions (manual: ledger order; Up-imported: newest first, with status HELD/SETTLED). Works for any account from list_accounts, hidden ones included.',
       read,
       { accountId, ...listTransactionsSchema.shape },
-      ({ accountId, ...filter }) => this.transactions.list(user, accountId, filter),
+      ({ accountId, ...filter }) => this.allAccounts.listTransactions(user, accountId, filter),
     );
     tool('get_transaction', 'Get one transaction', read, { transactionId }, ({ transactionId }) => this.transactions.get(user, transactionId));
 
@@ -383,7 +386,7 @@ export class MoneyMcpServerFactory {
       disconnectUpShape,
       (args) => this.up.disconnect(user, args),
     );
-    tool('list_up_accounts', 'List imported Up accounts. Default: only the ones you chose to show. visibility "hidden" or "all" includes the rest; hidden accounts are still imported and tracked.', read, listUpAccountsShape, (args) => this.up.listAccounts(user, args));
+    tool('list_up_accounts', 'List imported Up bank accounts with their last imported balance. Default here: all of them, hidden included (hidden only affects default views in the web app; hidden accounts are still imported and tracked). Pass visibility "visible" or "hidden" to narrow.', read, listUpAccountsShape, (args) => this.up.listAccounts(user, { visibility: 'all', ...args }));
     tool(
       'set_up_account_visibility',
       'Choose which imported Up accounts are shown in the default views; every other one becomes hidden (still imported and tracked)',
@@ -394,8 +397,8 @@ export class MoneyMcpServerFactory {
     tool('update_up_account', 'Show or hide one imported Up account, map it to a Money account, or set its Money category', write, { accountId: upAccountId, ...updateUpAccountShape }, ({ accountId, ...changes }) =>
       this.up.updateAccount(user, accountId, changes),
     );
-    tool('list_up_transactions', 'List imported Up transactions (read-only provenance records, separate from manual transactions). Visible accounts by default; pass accountId or visibility "all" for hidden ones.', read, listUpTransactionsShape, (args) =>
-      this.up.listTransactions(user, args),
+    tool('list_up_transactions', 'List imported Up transactions (read-only provenance records, separate from manual transactions). All accounts by default here, hidden included; pass accountId for one account or visibility "visible"/"hidden" to narrow.', read, listUpTransactionsShape, (args) =>
+      this.up.listTransactions(user, { visibility: 'all', ...args }),
     );
     tool('match_up_transaction', 'Mark an imported Up transaction as the same real-world event as a manual Money transaction so it is not counted twice', write, { upTransactionId, ...matchUpTransactionSchema.shape }, ({ upTransactionId, ...rest }) =>
       this.up.match(user, upTransactionId, rest),

@@ -7,6 +7,7 @@ import { AccountGroupsRepository } from './account-groups/account-groups.reposit
 import { AccountGroupsService } from './account-groups/account-groups.service';
 import { AccountsRepository } from './accounts/accounts.repository';
 import { AccountsService } from './accounts/accounts.service';
+import { UnifiedAccountsService } from './accounts/unified-accounts.service';
 import { createMoneyResourceServer, protectedResources } from './auth/auth.setup';
 import { MoneyUserGuard } from './auth/user.guard';
 import { CategoriesRepository } from './categories/categories.repository';
@@ -108,6 +109,7 @@ export class AppModule implements NestModule {
         MoneyUserGuard,
         AccountsRepository,
         AccountsService,
+        UnifiedAccountsService,
         AccountGroupsRepository,
         AccountGroupsService,
         CategoriesRepository,

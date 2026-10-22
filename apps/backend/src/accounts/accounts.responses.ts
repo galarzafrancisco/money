@@ -18,6 +18,18 @@ export const accountSchema = apiSchema(
   }),
 );
 
+/** An account as read back: manual or imported from Up, same shape */
+export const unifiedAccountSchema = apiSchema(
+  'UnifiedAccount',
+  accountSchema.extend({
+    source: z.enum(['manual', 'up']).describe('manual: recorded in Money. up: imported read-only from Up and kept in sync automatically'),
+    visible: z.boolean().describe('Imported accounts can be hidden from default views; manual accounts are always true'),
+    balances: z.array(z.object({ currency: z.string(), amount: z.string() })).describe('Cash held per currency (manual: replayed from the ledger; Up: the balance Up last reported)'),
+  }),
+);
+
+export const unifiedAccountListSchema = apiSchema('UnifiedAccountList', z.array(unifiedAccountSchema));
+
 export const accountListSchema = apiSchema('AccountList', z.array(accountSchema));
 
 export const deleteAccountResultSchema = apiSchema(

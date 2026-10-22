@@ -348,7 +348,16 @@ describe('Up! read-only import (mock provider)', () => {
       const token = upToken();
       const { accountIds } = up.addCustomer(token);
       await connect(user, token);
-      expect((await as(user).get('/api/accounts').expect(200)).body).toEqual([]);
+      // Imported accounts are listed like any account, but nothing manual exists yet
+      const listed = (await as(user).get('/api/accounts').expect(200)).body as { source: string }[];
+      expect(listed.length).toBe(3);
+      expect(listed.every((a) => a.source === 'up')).toBe(true);
+      // Hidden Up accounts and their transactions are reachable through the generic REST reads
+      const hiddenOne = listed.find((a: any) => !a.visible) as any;
+      expect((await as(user).get(`/api/accounts/${hiddenOne.id}`).expect(200)).body).toMatchObject({ id: hiddenOne.id, source: 'up', visible: false });
+      const restTx = (await as(user).get(`/api/accounts/${hiddenOne.id}/transactions`).expect(200)).body as any[];
+      expect(restTx.length).toBeGreaterThan(0);
+      expect(restTx.every((x) => x.source === 'up' && ['DEPOSIT', 'WITHDRAWAL'].includes(x.type))).toBe(true);
 
       const manual = (await as(user).post('/api/accounts', { name: 'My bank' }).expect(201)).body;
       const dep = (await as(user).post(`/api/accounts/${manual.id}/transactions`, { type: 'DEPOSIT', date: '2026-02-01', currency: 'AUD', amount: '10.00' }).expect(201)).body;
@@ -407,10 +416,33 @@ describe('Up! read-only import (mock provider)', () => {
       expect(connected.data.accounts).toMatchObject({ total: 3, visible: 0 });
       const listed = await callTool(t, mcpA, 'list_up_accounts', { visibility: 'all' });
       expect(listed.data).toHaveLength(3);
-      expect((await callTool(t, mcpA, 'list_up_accounts', {})).data).toEqual([]);
+      expect((await callTool(t, mcpA, 'list_up_accounts', {})).data).toHaveLength(listed.data.length); // MCP default includes hidden
+      expect((await callTool(t, mcpA, 'list_up_accounts', { visibility: 'visible' })).data).toEqual([]);
       const chosen = await callTool(t, mcpA, 'set_up_account_visibility', { visibleAccountIds: [listed.data[0].id] });
       expect(chosen.data.filter((a: any) => a.visible)).toHaveLength(1);
       expect((await callTool(t, mcpA, 'list_up_transactions', { accountId: listed.data[0].id, limit: 5 })).data.items.length).toBeGreaterThan(0);
+      // Up accounts are ordinary accounts in the generic tools, hidden ones included
+      const all = (await callTool(t, mcpA, 'list_accounts')).data.filter((a: any) => a.source === 'up');
+      expect(all).toHaveLength(3);
+      expect(all.some((a: any) => !a.visible)).toBe(true);
+      expect((await callTool(t, mcpA, 'list_accounts', { visibility: 'visible' })).data.filter((a: any) => a.source === 'up')).toHaveLength(1);
+      const hidden = all.find((a: any) => !a.visible);
+      const one = await callTool(t, mcpA, 'get_account', { accountId: hidden.id });
+      expect(one.data).toMatchObject({ id: hidden.id, source: 'up', visible: false });
+      expect(one.data.balances).toHaveLength(1);
+      const txs = await callTool(t, mcpA, 'list_transactions', { accountId: listed.data[0].id });
+      expect(txs.isError).toBe(false);
+      expect(txs.data.length).toBeGreaterThan(0);
+      expect(txs.data[0]).toMatchObject({ source: 'up', accountId: listed.data[0].id });
+      expect(['DEPOSIT', 'WITHDRAWAL']).toContain(txs.data[0].type);
+      // Up transactions have no instrument, so a symbol filter matches nothing
+      expect((await callTool(t, mcpA, 'list_transactions', { accountId: listed.data[0].id, symbol: 'VAS' })).data).toEqual([]);
+      // Long histories are not truncated at one page
+      const target = listed.data[0];
+      for (let i = 0; i < 520; i++) up.addTransaction(token, { accountId: target.upId, description: `Bulk ${i}`, amountInBaseUnits: -1, emit: false });
+      expect((await callTool(t, mcpA, 'sync_up', {})).isError).toBe(false);
+      const full = await callTool(t, mcpA, 'list_transactions', { accountId: target.id });
+      expect(full.data.filter((x: any) => x.description?.startsWith('Bulk '))).toHaveLength(520);
       expect((await callTool(t, mcpA, 'get_up_status')).data.status).toBe('active');
       expect((await callTool(t, mcpA, 'disconnect_up', {})).data.disconnected).toBe(true);
     });
