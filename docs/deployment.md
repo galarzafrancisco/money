@@ -35,7 +35,7 @@ install/manifests/
 │   ├── kustomization.yaml   namespace money; images: ghcr.io/galarzafrancisco/money (CI pins newTag)
 │   ├── namespace.yaml       sync-wave -2
 │   ├── configmap.yaml       money-config: all non-secret settings (DATABASE_MODE=postgres)
-│   ├── deployment.yaml      1 replica, Recreate, probes on /health, hardened pod,
+│   ├── deployment.yaml      1 replica, RollingUpdate, probes on /health, hardened pod,
 │   │                        DATABASE_URL from Secret money-database
 │   ├── service.yaml         ClusterIP :80 → 4180
 │   ├── certificate.yaml     cert-manager, letsencrypt-cluster-issuer → money-tls
@@ -68,8 +68,13 @@ follow `spark-ops/k8s/address-australia`, the existing
 - **Probes use `/health`**, which runs `SELECT 1`. A Postgres outage makes the
   pod unready; the lenient liveness probe restarts it only after about two
   minutes, so a short database restart doesn't.
-- **One replica, `Recreate`.** Migrations run on startup and TypeORM doesn't
-  serialize two pods migrating the same database, so two pods never overlap.
+- **One replica, `RollingUpdate` (`maxSurge: 1`, `maxUnavailable: 0`).** A deploy
+  starts the new pod and stops the old one only once the new one is ready, so
+  there is no downtime. The two pods overlap briefly on the same database. The
+  new pod runs pending migrations on startup while the old pod is still serving,
+  so a migration must stay compatible with the previous release (add before you
+  remove or rename; split a breaking change across two deploys). TypeORM takes no
+  advisory lock, so don't scale above one replica.
 - **The pod is hardened**: it runs as non-root with a read-only root
   filesystem, no capabilities and a 64Mi `/tmp`. CI smoke-tests the image
   with the same restrictions.
@@ -183,9 +188,9 @@ It does **not** survive losing the Spark disk: see [Backups](#backups-and-restor
 **Schema.** spark-ops creates only the empty database and role. The app's
 migrations create and update the schema on every startup
 (`migrationsRun`, all-or-nothing transaction), and are a no-op when nothing is
-pending. A failing migration stops the pod (`CrashLoopBackOff`), and the old pod
-is already gone because of `Recreate`, so test migrations on Postgres before
-merging (CI does).
+pending. A failing migration stops the new pod (`CrashLoopBackOff`), and the old pod
+keeps serving because the rolling update never marks the new pod ready. Test
+migrations on Postgres before merging (CI does).
 
 **Failure modes.** If `DATABASE_URL` is missing, production refuses to start
 (`DATABASE_MODE=postgres requires DATABASE_URL`) and never falls back to
