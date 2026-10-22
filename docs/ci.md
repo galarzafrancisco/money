@@ -32,8 +32,8 @@ The suite runs twice, as a matrix:
 Both legs are required. The Postgres leg does not depend on how production is
 deployed: keep it when the runtime changes.
 
-Each leg runs `npm ci`, `npm run build`, `npm run verify:auth`, `npm run typecheck`,
-the `@taico/auth` tests and the backend Jest suite. Jest runs with
+Each leg runs `npm ci`, `npm run build`, `npm run verify:auth`, `npm run typecheck`
+and the backend Jest suite. Jest runs with
 `--maxWorkers=2`. Every test file boots a full app and its own database, and
 unbounded parallelism has run out of memory on large machines.
 

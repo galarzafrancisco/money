@@ -41,7 +41,7 @@ MCP tools ────────┘              │
 
 ## Authentication
 
-Authentication is federated to Taico through the vendored `@taico/auth` (`packages/auth`).
+Authentication is federated to Taico through the published [`@taico/auth`](https://www.npmjs.com/package/@taico/auth) package.
 Money has no logins. Every `/api` and `/mcp` request needs a Taico access token
 that passes these checks:
 
@@ -70,7 +70,7 @@ Protected-resource metadata (RFC 9728) is served at
 
 ```bash
 npm install
-npm run dev          # from the repo root: builds @taico/auth, then watches the backend
+npm run dev          # from the repo root: watches the backend
 npm run build        # nest build → apps/backend/dist
 npm start            # node apps/backend/dist/main.js
 ```

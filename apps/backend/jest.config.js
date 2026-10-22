@@ -19,6 +19,5 @@ module.exports = {
   },
   transformIgnorePatterns: [
     'node_modules/(?!(@modelcontextprotocol|jose|@taico|pkce-challenge)/)',
-    '/packages/auth/src/',
   ],
 };
