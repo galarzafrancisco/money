@@ -12,7 +12,9 @@ COPY apps/backend/package.json ./apps/backend/
 COPY apps/web/package.json ./apps/web/
 COPY packages/client/package.json ./packages/client/
 
-RUN --mount=type=cache,target=/root/.npm npm ci
+# --no-audit: npm's audit request can hang an install until its 5-minute fetch
+# timeout, after the packages are already in place
+RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --no-fund
 
 COPY . .
 
@@ -34,7 +36,7 @@ COPY apps/web/package.json ./apps/web/
 COPY packages/client/package.json ./packages/client/
 
 # Production dependencies only (the web app is a static bundle and needs none); @taico/auth comes from npm
-RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev
+RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev --no-audit --no-fund
 
 COPY --from=builder /workdir/apps/backend/dist ./apps/backend/dist
 # Served by the backend at / (src/web-app/serve-web-app.ts), same origin as /api and /auth
