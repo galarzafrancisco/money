@@ -407,7 +407,8 @@ describe('Up! read-only import (mock provider)', () => {
       expect(connected.data.accounts).toMatchObject({ total: 3, visible: 0 });
       const listed = await callTool(t, mcpA, 'list_up_accounts', { visibility: 'all' });
       expect(listed.data).toHaveLength(3);
-      expect((await callTool(t, mcpA, 'list_up_accounts', {})).data).toEqual([]);
+      expect((await callTool(t, mcpA, 'list_up_accounts', {})).data).toHaveLength(listed.data.length); // MCP default includes hidden
+      expect((await callTool(t, mcpA, 'list_up_accounts', { visibility: 'visible' })).data).toEqual([]);
       const chosen = await callTool(t, mcpA, 'set_up_account_visibility', { visibleAccountIds: [listed.data[0].id] });
       expect(chosen.data.filter((a: any) => a.visible)).toHaveLength(1);
       expect((await callTool(t, mcpA, 'list_up_transactions', { accountId: listed.data[0].id, limit: 5 })).data.items.length).toBeGreaterThan(0);
