@@ -27,6 +27,8 @@ for money.
 | `reporting_currency` | The currency the account is usually reported in. Cash can be held in any currency. |
 | `description` | Free text |
 
+Logical groups use `account_groups` and `account_group_members` (see [account-groups.md](account-groups.md)): a member is a Money account or an Up account, each in at most one group, with composite `(id, user_id)` FKs.
+
 ### `categories`
 
 User-defined labels (`name` unique per user, case-insensitive; optional

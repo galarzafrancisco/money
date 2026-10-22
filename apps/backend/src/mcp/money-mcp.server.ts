@@ -5,6 +5,9 @@ import { z } from 'zod';
 import { createAccountSchema, updateAccountSchema } from '../accounts/accounts.schemas';
 import { AccountsService } from '../accounts/accounts.service';
 import { createCategorySchema, holdingCategorySchema, updateCategorySchema } from '../categories/categories.schemas';
+import { createAccountGroupSchema, updateAccountGroupSchema } from '../account-groups/account-groups.schemas';
+import { AccountGroupsService } from '../account-groups/account-groups.service';
+import { groupViewOptionsSchema } from '../account-groups/account-groups.controller';
 import { CategoriesService } from '../categories/categories.service';
 import { DomainError } from '../common/errors';
 import { dashboardOptionsSchema } from '../dashboard/dashboard.schemas';
@@ -63,6 +66,7 @@ export class MoneyMcpServerFactory {
     private readonly lots: LotsService,
     private readonly dashboard: DashboardService,
     private readonly up: UpService,
+    private readonly accountGroups: AccountGroupsService,
   ) {}
 
   build(user: CurrentUser): McpServer {
@@ -151,6 +155,34 @@ export class MoneyMcpServerFactory {
       read,
       { accountId: accountId.optional() },
       ({ accountId }) => this.categories.listHoldingCategories(user, accountId),
+    );
+
+    tool(
+      'list_account_groups',
+      'List your logical account groups (your own tracking buckets over Money accounts and imported Up accounts, e.g. "Cash") with member accounts and totals, plus the physical accounts in no group. A group is not a category and not a subaccount. An account is in at most one group, so nothing is counted twice. Converted totals need baseCurrency and fxRates.',
+      read,
+      groupViewOptionsSchema.shape,
+      (args) => this.accountGroups.list(user, args),
+    );
+    tool('get_account_group', 'Get one account group with its members and totals', read, { groupId: z.string().describe('Group ID (from list_account_groups)'), ...groupViewOptionsSchema.shape }, ({ groupId, ...options }) =>
+      this.accountGroups.get(user, groupId, options),
+    );
+    tool(
+      'create_account_group',
+      'Create a logical account group, optionally with members: { kind: "account", id } for a Money account or { kind: "up", id } for an imported Up account. Tracking only; it never changes the accounts.',
+      write,
+      createAccountGroupSchema.shape,
+      (args) => this.accountGroups.create(user, args),
+    );
+    tool(
+      'update_account_group',
+      'Rename a group or replace its members (the list replaces the whole membership). An account already in another group is refused unless move is true.',
+      write,
+      { groupId: z.string().describe('Group ID (from list_account_groups)'), ...updateAccountGroupSchema.shape },
+      ({ groupId, ...changes }) => this.accountGroups.update(user, groupId, changes),
+    );
+    tool('delete_account_group', 'Delete a group. Its accounts are released into "ungrouped"; they and their data are not deleted.', destructive, { groupId: z.string().describe('Group ID (from list_account_groups)') }, ({ groupId }) =>
+      this.accountGroups.delete(user, groupId),
     );
 
     tool(

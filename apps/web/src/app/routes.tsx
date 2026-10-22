@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes } from 'react-router';
+import { AccountGroupsPage } from '../features/account-groups/AccountGroupsPage';
 import { AccountLayout } from '../features/accounts/AccountLayout';
 import { AccountOverview } from '../features/accounts/AccountOverview';
 import { AccountSettings } from '../features/accounts/AccountSettings';
@@ -29,6 +30,7 @@ export function AppRoutes() {
         <Route path="shares" element={<DashboardShares />} />
       </Route>
       <Route path="/accounts" element={<AccountsPage />} />
+      <Route path="/accounts/groups" element={<AccountGroupsPage />} />
       <Route path="/accounts/new" element={<NewAccountPage />} />
       <Route path="/accounts/:accountId" element={<AccountLayout />}>
         <Route index element={<AccountOverview />} />

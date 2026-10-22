@@ -4,6 +4,8 @@ import { Badge, ButtonLink, Callout, Card, Checkbox, EmptyState, Loading, Row, S
 import { useState } from 'react';
 import { useUpAccounts, useUpStatus, type UpAccount } from '../connections/data';
 import { useCategories } from '../categories/data';
+import { AccountViewNav } from '../account-groups/AccountViewNav';
+import { useAccountGroups } from '../account-groups/data';
 import { ApiErrorCallout } from '../shared/ApiErrorCallout';
 import { CurrencyLines } from '../shared/CurrencyTotals';
 import { PageHeader } from '../shared/PageHeader';
@@ -27,16 +29,23 @@ export function AccountsPage() {
   const upAccounts = useUpAccounts(showAllUp ? 'all' : 'visible', upActive);
   const upRows: UpAccount[] = upActive ? (upAccounts.data ?? []) : [];
 
+  const groupsQuery = useAccountGroups();
+  const groupNameByAccount = new Map<string, string>();
+  for (const g of groupsQuery.data?.groups ?? []) for (const m of g.members) groupNameByAccount.set(`${m.kind}:${m.id}`, g.name);
+
   const header = (
-    <PageHeader
-      title="Accounts"
-      subtitle="Your accounts and subaccounts, with what they hold. Money records activity; it never moves money."
-      actions={
-        <ButtonLink to="/accounts/new" variant="primary">
-          New account
-        </ButtonLink>
-      }
-    />
+    <>
+      <PageHeader
+        title="Accounts"
+        subtitle="Physical accounts as they exist: your Money accounts and subaccounts, and accounts imported read-only from Up. Money records activity; it never moves money."
+        actions={
+          <ButtonLink to="/accounts/new" variant="primary">
+            New account
+          </ButtonLink>
+        }
+      />
+      <AccountViewNav />
+    </>
   );
 
   const upToggle = upStatus.data?.status === 'active' && (
@@ -113,6 +122,14 @@ export function AccountsPage() {
         if (own) return <span><Swatch color={own.color} /> {own.name}</span>;
         if (effective) return <Text tone="muted" size="sm" as="span">{effective.name} (inherited)</Text>;
         return <Text tone="muted" size="sm" as="span">Uncategorized</Text>;
+      },
+    },
+    {
+      key: 'group',
+      header: 'Logical group',
+      render: (row) => {
+        const name = groupNameByAccount.get(row.kind === 'up' ? `up:${row.up.id}` : `account:${row.node.account.id}`);
+        return name ? <Badge>{name}</Badge> : <Text tone="muted" size="sm" as="span">None</Text>;
       },
     },
     {
