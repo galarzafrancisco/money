@@ -174,7 +174,9 @@ ref that wrote them: a PR reads its own entries and `main`'s, and `main` never
 reads a PR's. On PR #20, layers written by the PR still missed on the next
 push, and the export cost about 15 s a run. Reading `main`'s cache is enough,
 because most PRs don't change dependencies. Both Docker build steps also turn
-off the build summary and record upload, which took about 12 s.
+off the build summary and record upload, and `setup-buildx-action` runs with
+`cleanup: false`, because removing the builder took about 12 s on a runner
+that is thrown away anyway.
 
 The `node_modules` key must change whenever installed contents could. If you
 add a workspace or change the Node major, update the key in both jobs.
