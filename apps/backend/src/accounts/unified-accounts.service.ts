@@ -89,6 +89,8 @@ export class UnifiedAccountsService {
       return (await this.transactions.list(user, accountId, filter)).map((t) => ({ ...t, source: 'manual' as const }));
     }
     const parsed = parseInput(listTransactionsSchema, filter);
+    // Up transactions are bank cash movements with no instrument, so a symbol filter can match nothing.
+    if (parsed.symbol) return [];
     const page = await this.up.listTransactions(user, { accountId, fromDate: parsed.fromDate, toDate: parsed.toDate, limit: 500 });
     return page.items
       .map((t) => {

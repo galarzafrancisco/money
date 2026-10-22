@@ -426,6 +426,8 @@ describe('Up! read-only import (mock provider)', () => {
       expect(txs.data.length).toBeGreaterThan(0);
       expect(txs.data[0]).toMatchObject({ source: 'up', accountId: listed.data[0].id });
       expect(['DEPOSIT', 'WITHDRAWAL']).toContain(txs.data[0].type);
+      // Up transactions have no instrument, so a symbol filter matches nothing
+      expect((await callTool(t, mcpA, 'list_transactions', { accountId: listed.data[0].id, symbol: 'VAS' })).data).toEqual([]);
       expect((await callTool(t, mcpA, 'get_up_status')).data.status).toBe('active');
       expect((await callTool(t, mcpA, 'disconnect_up', {})).data.disconnected).toBe(true);
     });

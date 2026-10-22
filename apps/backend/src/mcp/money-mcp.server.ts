@@ -77,7 +77,7 @@ export class MoneyMcpServerFactory {
       {
         instructions:
           `Personal investment tracking for the signed-in user: named accounts, multi-currency cash, FX conversions, transfers between accounts, share buys and sells, dividends with withholding tax, cost bases per parcel, and gains. ${PERSONAL_TRACKING} ` +
-          'Imported Up bank accounts are separate from the manual ledger: list_accounts, get_accounts_report and get_dashboard do NOT include them. Use list_up_accounts (balances, hidden ones too), list_up_transactions, or list_account_groups (which counts Up accounts and Money accounts together). ' +
+          'Imported Up bank accounts are accounts like any other: list_accounts, get_account and list_transactions include them (hidden ones too, with source "up"). Only get_accounts_report and get_dashboard still cover the manual ledger only. list_up_accounts, list_up_transactions and list_account_groups give Up-specific detail. ' +
           'Amounts are decimal strings. Figures are not tax advice; see the notes returned by get_portfolio.',
       },
     );
