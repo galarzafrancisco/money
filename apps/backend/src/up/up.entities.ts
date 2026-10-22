@@ -41,6 +41,8 @@ export class UpAccountEntity {
   /** false = imported and tracked but hidden from default views */
   @Column({ type: 'boolean', default: false }) visible: boolean;
   @Column({ name: 'linked_account_id', type: 'uuid', nullable: true }) linkedAccountId: string | null;
+  /** The user's Money category for this account (optional) */
+  @Column({ name: 'category_id', type: 'uuid', nullable: true }) categoryId: string | null;
   /** Newest Up createdAt fully imported for this account */
   @Column({ name: 'tx_cursor', type: 'timestamptz', nullable: true }) txCursor: Date | null;
   @Column({ name: 'first_imported_at', type: 'timestamptz', default: () => 'now()', update: false }) firstImportedAt: Date;

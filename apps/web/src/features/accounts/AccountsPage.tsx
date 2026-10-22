@@ -1,6 +1,7 @@
 import type { AccountReportNode } from '@money/client';
 import { Link } from 'react-router';
 import { Badge, ButtonLink, Callout, Card, EmptyState, Loading, Stack, Swatch, Table, Text, type Column } from '../../ui';
+import { UpAccountsSummary } from '../connections/UpAccountsSummary';
 import { useCategories } from '../categories/data';
 import { ApiErrorCallout } from '../shared/ApiErrorCallout';
 import { CurrencyLines } from '../shared/CurrencyTotals';
@@ -47,6 +48,7 @@ export function AccountsPage() {
         >
           Add a brokerage, bank or savings account, then record the deposits, trades and dividends that happen in it.
         </EmptyState>
+        <UpAccountsSummary />
       </>
     );
   }
@@ -103,6 +105,7 @@ export function AccountsPage() {
       <Card flush>
         <Table label="Accounts" columns={columns} rows={rows} rowKey={(r) => r.account.id} />
       </Card>
+      <UpAccountsSummary />
       {report.isError && <ApiErrorCallout error={report.error} title="Totals are unavailable right now" />}
       {report.data && report.data.warnings.length > 0 && (
         <Callout tone="warning" title="Some holdings are valued at cost">

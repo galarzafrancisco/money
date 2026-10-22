@@ -24,6 +24,7 @@ export const listUpAccountsSchema = z.object(listUpAccountsShape);
 export const updateUpAccountShape = {
   visible: z.boolean().optional().describe('Show this Up account in the default views. Hidden accounts are still imported and tracked.'),
   linkedAccountId: z.string().nullable().optional().describe('Optional: map this Up account to one of your Money accounts (from list_accounts). null removes the mapping.'),
+  categoryId: z.string().nullable().optional().describe('Optional: your Money category for this Up account (from list_categories). null clears it.'),
 };
 export const updateUpAccountSchema = z.object(updateUpAccountShape);
 export type UpdateUpAccountInput = z.input<typeof updateUpAccountSchema>;

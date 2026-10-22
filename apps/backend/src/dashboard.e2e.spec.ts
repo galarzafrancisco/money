@@ -218,7 +218,8 @@ describe('dashboard', () => {
 
   it('migrates SUPERANNUATION accounts down to OTHER and back up', async () => {
     const ds = t.app.get(DataSource);
-    // The superannuation migration and the two after it (price store, Up! import)
+    // The superannuation migration and the two after it (price store, Up! import), plus the Up! account category
+    await ds.undoLastMigration(); // Up! account category
     await ds.undoLastMigration();
     await ds.undoLastMigration();
     await ds.undoLastMigration();

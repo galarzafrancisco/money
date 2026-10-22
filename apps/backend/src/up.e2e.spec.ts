@@ -12,6 +12,7 @@ describe('Up! read-only import (mock provider)', () => {
   let up: UpMock;
   let tokenA: string;
   let tokenB: string;
+  let tokenC: string;
   let mcpA: string;
   let n = 0;
 
@@ -36,6 +37,7 @@ describe('Up! read-only import (mock provider)', () => {
     });
     tokenA = await t.token({ subject: 'up-a' });
     tokenB = await t.token({ subject: 'up-b' });
+    tokenC = await t.token({ subject: 'up-c' });
     mcpA = await t.token({ subject: 'up-mcp', audience: 'http://money.test/mcp' });
   });
   afterAll(async () => {
@@ -115,6 +117,26 @@ describe('Up! read-only import (mock provider)', () => {
 
     it('rejects unknown account IDs in a visibility selection', async () => {
       await as(tokenA).put('/api/up/accounts/visibility', { visibleAccountIds: ['00000000-0000-4000-8000-000000000000'] }).expect(404);
+    });
+  });
+
+  describe('account category', () => {
+    it('sets and clears a Money category, survives a sync, is user-scoped, and clears when the category is deleted', async () => {
+      const token = upToken();
+      up.addCustomer(token);
+      await connect(tokenC, token);
+      const [first] = await accounts(tokenC);
+      const category = (await as(tokenC).post('/api/categories', { name: 'Emergency' }).expect(201)).body;
+      const set = await as(tokenC).patch(`/api/up/accounts/${first.id}`, { categoryId: category.id }).expect(200);
+      expect(set.body.categoryId).toBe(category.id);
+      await as(tokenC).post('/api/up/sync').expect(200);
+      expect((await accounts(tokenC)).find((a) => a.id === first.id).categoryId).toBe(category.id);
+      await as(tokenA).patch(`/api/up/accounts/${first.id}`, { categoryId: category.id }).expect(404);
+      const mine = (await as(tokenA).post('/api/categories', { name: 'Other' }).expect(201)).body;
+      await as(tokenC).patch(`/api/up/accounts/${first.id}`, { categoryId: mine.id }).expect(404);
+      await as(tokenC).delete(`/api/categories/${category.id}?unassign=true`).expect(200);
+      expect((await accounts(tokenC)).find((a) => a.id === first.id).categoryId).toBeNull();
+      await as(tokenC).patch(`/api/up/accounts/${first.id}`, { categoryId: null }).expect(200);
     });
   });
 
@@ -402,7 +424,8 @@ describe('Up! read-only import (mock provider)', () => {
 
   it('migrates the Up tables down and back up', async () => {
     const ds = t.app.get(DataSource);
-    await ds.undoLastMigration();
+    await ds.undoLastMigration(); // UpAccountCategory
+    await ds.undoLastMigration(); // UpIntegration
     const [{ exists }] = await ds.query(`SELECT to_regclass('up_integrations') IS NOT NULL AS exists`);
     expect(exists).toBe(false);
     await ds.runMigrations();
