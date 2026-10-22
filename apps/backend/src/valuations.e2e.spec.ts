@@ -208,10 +208,21 @@ describe('daily closing-price valuations', () => {
     expect(day(onlyAsx, '2025-03-11').holdings).toBeUndefined();
 
     const converted = await history(tokenA, 'fromDate=2025-03-11&toDate=2025-03-11&baseCurrency=AUD&fxRates=USD:1.5');
-    expect(day(converted, '2025-03-11').totals.converted).toEqual({ baseCurrency: 'AUD', marketValue: '3310.5', costBase: '3105' });
-    expect(converted.fx.policy).toMatch(/Constant/);
+    expect(day(converted, '2025-03-11').totals.converted).toMatchObject({ baseCurrency: 'AUD', marketValue: '3310.5', costBase: '3105' });
+    expect(converted.fx.policy).toBe('CONSTANT');
+    expect(converted.fx.description).toMatch(/Not historical FX/);
 
-    const missing = await as(tokenA).get('/api/valuations?fromDate=2025-03-11&toDate=2025-03-11&baseCurrency=AUD').expect(400);
+    // Without fxRates: each date at its own historical FX close (mock USDAUD=X: 1.538462)
+    const historical = await history(tokenA, 'fromDate=2025-03-11&toDate=2025-03-11&baseCurrency=AUD');
+    expect(historical.fx.policy).toBe('HISTORICAL');
+    expect(day(historical, '2025-03-11').totals.converted).toEqual({
+      baseCurrency: 'AUD',
+      marketValue: '3343.077314',
+      costBase: '3133.8465',
+      rates: [{ currency: 'USD', rate: '1.538462', kind: 'HISTORICAL', tradingDate: '2025-03-11', source: 'mock', isMock: true }],
+    });
+
+    const missing = await as(tokenA).get('/api/valuations?fromDate=2025-03-11&toDate=2025-03-11&baseCurrency=AUD&fxRates=EUR:0.6').expect(400);
     expect(missing.body.error.details.missingRates).toEqual(['USD']);
     await as(tokenA).get('/api/valuations?fromDate=2024-01-01&toDate=2025-03-11&include=holdings').expect(400);
     await as(tokenA).get('/api/valuations?fromDate=2025-03-12&toDate=2025-03-11').expect(400);

@@ -2,8 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { MoneyDecimal, ZERO, dec, fmt } from '../common/decimal';
 import { AccountsService, type AccountView } from '../accounts/accounts.service';
 import { heldOverTwelveMonths, replayLedger } from '../ledger/ledger-engine';
-import { MarketPricesService } from '../market-prices/market-prices.service';
-import type { Quote } from '../market-prices/market-price.port';
+import { MarketPricesService, type QuoteResult } from '../market-prices/market-prices.service';
 import { toLedgerEntry } from '../transactions/transaction.mapper';
 import { TransactionsRepository } from '../transactions/transactions.repository';
 import type { CurrentUser } from '../users/users.service';
@@ -22,7 +21,7 @@ export const ACCOUNTING_NOTES = [
   'Realized gain = net proceeds − cost base of the parcels sold. Unrealized gain = market value − remaining cost base.',
 ];
 
-type PriceInfo = { price: string; currency: string; asOf: string; source: string; isMock: boolean };
+type PriceInfo = { price: string; currency: string; asOf: string; source: string; isMock: boolean; isStale: boolean };
 
 export type PortfolioView = {
   account: AccountView;
@@ -108,13 +107,13 @@ export class PortfolioService {
     const holdings: HoldingView[] = [...state.positions.values()]
       .sort((a, b) => a.symbol.localeCompare(b.symbol))
       .map((position) => {
-        const result = quotes.get(position.symbol) as { quote: Quote } | { error: string } | undefined;
+        const result = quotes.get(position.symbol) as QuoteResult | undefined;
         let price: PriceInfo | null = null;
         let priceError: string | null = null;
         let unitPrice: MoneyDecimal | null = null;
         if (result && 'quote' in result) {
           const { quote } = result;
-          price = { price: quote.price, currency: quote.currency, asOf: quote.asOf, source: quote.source, isMock: quote.isMock };
+          price = { price: quote.price, currency: quote.currency, asOf: quote.asOf, source: quote.source, isMock: quote.isMock, isStale: quote.isStale };
           if (quote.currency === position.currency) {
             unitPrice = dec(quote.price);
           } else {

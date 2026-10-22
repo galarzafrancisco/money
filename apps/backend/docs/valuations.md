@@ -2,7 +2,10 @@
 
 Money keeps a daily history of what each user's holdings were worth at the
 market close. Charts of value over time read it through
-`GET /api/valuations` or the `get_valuation_history` MCP tool.
+`GET /api/valuations` or the `get_valuation_history` MCP tool. One date can be
+read, or reconstructed on demand, through `GET /api/valuations/as-of`
+(`get_valuation_as_of`). Closes come from the shared, store-first price
+history described in [market-prices.md](market-prices.md).
 
 Personal tracking only: the job reads prices; it never trades or moves money.
 
@@ -77,8 +80,9 @@ does only what is due, so frequent runs are cheap. A run:
    - days on or after a pending recompute request (see below).
    At most `VALUATION_MAX_DAYS_PER_RUN` dates per user per run; the rest wait
    for the next run.
-3. replays each account's ledger for those dates, fetches the needed closes
-   (one provider call per symbol per run), and **replaces** each (user, date)
+3. replays each account's ledger for those dates, reads the needed closes from
+   the price store (asking the provider only for dates not stored yet, see
+   [market-prices.md](market-prices.md)), and **replaces** each (user, date)
    in one database transaction.
 
 **Date D is due** at D+1 `VALUATION_SETTLE_HOUR_UTC`:00 UTC (default 06:00).
@@ -117,10 +121,13 @@ everything.
 
 - **Downtime or missed runs**: the next run backfills every missing date.
   No action is needed.
-- **Provider outage**: affected holdings are `MISSING` (or `PRICE_PENDING`)
-  and their days are `PARTIAL`. They are re-tried for
-  `VALUATION_RECHECK_DAYS`. Closes fetched earlier are kept in
-  `market_price_closes` and used when the provider is down.
+- **Provider outage**: closes already stored are used as usual. Dates not
+  stored yet are `MISSING` (or `PRICE_PENDING`) and their days are `PARTIAL`.
+  They are re-tried for `VALUATION_RECHECK_DAYS`.
+- **Corrected prices**: stored closes are final. Use
+  `POST /api/valuations/recompute { fromDate, refreshPrices: true }` to fetch
+  them again from `fromDate`. Any close that changed re-values every holder's
+  dates from that date, for every user.
 - **Older gaps** (outside the recheck window): call
   `POST /api/valuations/recompute { fromDate }` (MCP
   `request_valuation_recompute`). It marks the user's dates from `fromDate`
@@ -149,7 +156,8 @@ everything.
 ## Providers
 
 Closes come from the `MarketPriceProvider` port's `getDailyCloses`, through
-`MARKET_PRICE_PROVIDER`:
+the price store (`PriceHistoryService`). See [market-prices.md](market-prices.md)
+for store-first lookups, Yahoo's caveats and configuration.
 
 - **`mock`** (default): made-up closes on every weekday, around the
   symbol's mock price. Rows carry `price_source: "mock"`, `price_is_mock:
@@ -162,26 +170,62 @@ Closes come from the `MarketPriceProvider` port's `getDailyCloses`, through
     that Yahoo reports. The close time is the session's scheduled regular
     close (from `currentTradingPeriod`). Early closes (half days) are not
     reflected in `price_close_time`.
-  - Yahoo's daily `close` is **split-adjusted** (not dividend-adjusted). After
-    a split, Yahoo's history changes, but the ledger quantities don't, because
-    corporate actions are not modelled yet. Recompute affected dates after
-    recording a split-equivalent adjustment.
+  - Yahoo's daily `close` is split-adjusted. The adapter reverses that with
+    Yahoo's split events, so stored closes are **as traded** and match the
+    ledger's recorded quantities. Corporate actions are not modelled: if a
+    split happened while a holding was held, `price.note` says so, and the
+    quantity after it may not match the shares really held.
   - Prices in minor units (`GBp`/`GBX` pence, `ZAc`, `ILA`) are converted to
     the major currency (GBP, ZAR, ILS) so they match trades recorded in it.
-    This also fixes live quotes for London listings.
-  - Requests run four symbols at a time, once per run per symbol.
 
 ## FX
 
 Totals are given **per currency**. Currencies are never added together
-without an explicit policy. With `baseCurrency` and `fxRates` (same format as
-the reports), `totals.converted` applies **the caller's constant rates to
-every date**. These are not historical exchange rates, and the response says
-so in `fx.policy`. A missing rate is a 400 with `details.missingRates`.
+without an explicit policy. With `baseCurrency`:
+
+- **Historical (default)**: each date is converted at that date's FX close
+  (the pair `{CUR}{BASE}=X` from the price store, the latest close up to
+  `VALUATION_MAX_CARRY_DAYS` before the date). `fx.policy` is `HISTORICAL`,
+  and `totals.converted.rates` lists the rate, its trading date, source and
+  `isMock` for each currency. If any currency has no rate for a date,
+  `totals.converted` is `null` for that date and
+  `totals.conversionUnavailable` says why. No other rate is substituted.
+- **Constant**: with `fxRates` as well (same format as the reports), those
+  rates are applied to every date. `fx.policy` is `CONSTANT`, and the
+  description says these are not historical rates. A missing rate is a 400
+  with `details.missingRates`.
+
+Converted cost base uses the same date's rate. It is a translation for
+charting, not an acquisition-date cost base, and it is not tax advice.
+
+## As of a date
+
+`GET /api/valuations/as-of?date=YYYY-MM-DD&accountId&includeSubaccounts&symbol&baseCurrency&fxRates`
+(MCP `get_valuation_as_of`) returns the holdings at the end of `date` with
+quantities, lots, the close used and totals, in the same shape as a history
+day with `include=holdings`.
+
+- `basis: SNAPSHOT`: the materialised snapshot, used when it exists, was
+  priced by the current provider, is `COMPLETE` and has no pending recompute.
+- `basis: ON_DEMAND`: otherwise (no snapshot yet, outside the backfill window,
+  `PARTIAL`, or a backdated change or price correction not yet re-valued),
+  computed now with the job's own code (`holdingsOn` in `valuation-math.ts`).
+  It replays the ledger to `date` and reads closes from the price store,
+  fetching the missing ones from `date − VALUATION_MAX_CARRY_DAYS` to
+  `date + VALUATION_MAX_CARRY_DAYS`. `basisReason` says why. Nothing is
+  stored. The job materialises the date on its next run, and for the same
+  ledger and closes both give the same figures (tested).
+- Bounds: one date per request, not after today. Older dates work, as far
+  back as the provider has history.
+
+History days and as-of results carry `pendingRecompute: true` when a
+backdated change or price correction affects the date and has not been
+re-valued yet.
 
 ## API
 
-- `GET /api/valuations?fromDate&toDate&accountId&includeSubaccounts&symbol&include=totals|holdings&baseCurrency&fxRates`.
+- `GET /api/valuations?fromDate&toDate&accountId&includeSubaccounts&symbol&include=totals|holdings&baseCurrency&fxRates`
+  (`baseCurrency` alone converts at historical FX; see "FX").
   Defaults to the 90 days up to the latest materialised date. At most 3660
   days, or 366 with `include=holdings`. `accountId` includes its subaccounts
   unless `includeSubaccounts=false`. Each day has `complete` (for the
@@ -189,8 +233,10 @@ so in `fx.policy`. A missing rate is a 400 with `details.missingRates`.
   `marketValue` (valued holdings only), `costBase`, `holdings`,
   `unvaluedHoldings` and `provisionalHoldings`.
 - `GET /api/valuations/status`
-- `POST /api/valuations/recompute { fromDate, accountId? }` → 202
+- `GET /api/valuations/as-of?date&accountId&includeSubaccounts&symbol&baseCurrency&fxRates`
+  (see "As of a date").
+- `POST /api/valuations/recompute { fromDate, accountId?, refreshPrices? }` → 202
 
-MCP tools `get_valuation_history`, `get_valuation_status` and
-`request_valuation_recompute` call the same service. Every query filters by
+MCP tools `get_valuation_history`, `get_valuation_as_of`, `get_valuation_status`
+and `request_valuation_recompute` call the same service. Every query filters by
 the token's user. Another user's `accountId` is a 404.

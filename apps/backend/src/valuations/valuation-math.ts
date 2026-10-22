@@ -2,11 +2,12 @@
  * Pure valuation logic for the daily job: what was held at the end of a
  * date, and which close values it. No I/O.
  */
-import { MoneyDecimal, dec } from '../common/decimal';
+import { MoneyDecimal, dec, fmt } from '../common/decimal';
 import { compareEntries, replayLedger } from '../ledger/ledger-engine';
 import type { LedgerEntry, Position } from '../ledger/ledger.types';
 import { daysBetween, isWeekend } from '../market-prices/market-calendar';
 import type { DailyClose, DailyCloseSeries } from '../market-prices/market-price.port';
+import type { ValuationHoldingRow } from './valuations.repository';
 
 /**
  * Open positions at the end of each date (every entry dated on or before
@@ -49,7 +50,8 @@ export type PriceStatus = 'CLOSE' | 'NON_TRADING_DAY' | 'PRICE_PENDING' | 'MISSI
 /** Statuses that are a final, correct valuation for the date */
 export const FINAL_STATUSES: readonly PriceStatus[] = ['CLOSE', 'NON_TRADING_DAY'];
 
-export type SeriesResult = { series: DailyCloseSeries | null; error?: undefined } | { series?: undefined; error: string };
+/** `warning`: the provider failed and only stored closes were used */
+export type SeriesResult = { series: DailyCloseSeries | null; error?: undefined; warning?: string } | { series?: undefined; error: string; warning?: undefined };
 
 export type PricedHolding = {
   status: PriceStatus;
@@ -59,7 +61,31 @@ export type PricedHolding = {
   note: string | null;
 };
 
-export function priceHolding(position: Pick<Position, 'symbol' | 'currency' | 'quantity'>, date: string, result: SeriesResult | undefined, maxCarryDays: number): PricedHolding {
+export function priceHolding(
+  position: Pick<Position, 'symbol' | 'currency' | 'quantity'> & { lots?: Position['lots'] },
+  date: string,
+  result: SeriesResult | undefined,
+  maxCarryDays: number,
+): PricedHolding {
+  const priced = priceAtClose(position, date, result, maxCarryDays);
+  const notes = [priced.note, splitWarning(position, date, priced.series)].filter((n): n is string => !!n);
+  return { ...priced, note: notes.length > 0 ? notes.join('. ') : null };
+}
+
+/**
+ * Closes are as traded and ledger quantities are as recorded; corporate
+ * actions are not modelled. A split while the holding was held means the
+ * recorded quantity no longer matches the shares really held after it.
+ */
+function splitWarning(position: { lots?: Position['lots'] }, date: string, series: DailyCloseSeries | null): string | null {
+  const firstAcquired = position.lots?.reduce<string | null>((min, lot) => (min === null || lot.acquiredOn < min ? lot.acquiredOn : min), null);
+  if (!series || !firstAcquired) return null;
+  const split = series.splits.find((s) => s.date > firstAcquired && s.date <= date);
+  if (!split) return null;
+  return `${series.symbol} split ${split.numerator}:${split.denominator} on ${split.date}, while held; splits are not recorded in the ledger, so the quantity may not match the shares held after it`;
+}
+
+function priceAtClose(position: Pick<Position, 'symbol' | 'currency' | 'quantity'>, date: string, result: SeriesResult | undefined, maxCarryDays: number): PricedHolding {
   const missing = (note: string, series: DailyCloseSeries | null = null): PricedHolding => ({ status: 'MISSING', close: null, series, marketValue: null, note });
   if (!result) return missing('No price history was looked up');
   if (result.error !== undefined) return missing(result.error);
@@ -101,4 +127,49 @@ export function priceHolding(position: Pick<Position, 'symbol' | 'currency' | 'q
     marketValue: value,
     note: `No close for ${date} yet (late, unavailable or an unknown holiday); provisionally valued at the ${latest.tradingDate} close`,
   };
+}
+
+/**
+ * The snapshot rows for one valuation date: every open position, priced at
+ * its close. Shared by the daily job and on-demand reconstruction, so both
+ * give the same answer for the same ledger and closes.
+ */
+export function holdingsOn(
+  positions: readonly { accountId: string; byDate: Map<string, Position[]> }[],
+  date: string,
+  series: Map<string, SeriesResult>,
+  maxCarryDays: number,
+): Omit<ValuationHoldingRow, 'date'>[] {
+  const holdings: Omit<ValuationHoldingRow, 'date'>[] = [];
+  for (const { accountId, byDate } of positions) {
+    for (const position of byDate.get(date) ?? []) {
+      const priced = priceHolding(position, date, series.get(position.symbol), maxCarryDays);
+      const unit = priced.close ? fmt(dec(priced.close.close)) : null;
+      holdings.push({
+        accountId,
+        symbol: position.symbol,
+        currency: position.currency,
+        quantity: fmt(position.quantity),
+        costBase: fmt(position.costBase),
+        priceStatus: priced.status,
+        closePrice: unit,
+        priceCurrency: priced.close ? priced.series!.currency : null,
+        priceDate: priced.close?.tradingDate ?? null,
+        priceCloseTime: priced.close?.closeTime ?? null,
+        priceSource: priced.series?.source ?? null,
+        priceIsMock: priced.series ? priced.series.isMock : null,
+        exchangeTimezone: priced.series?.exchangeTimezone ?? null,
+        marketValue: priced.marketValue ? fmt(priced.marketValue) : null,
+        priceNote: priced.note,
+        lots: position.lots.map((lot) => ({
+          lotId: lot.lotId,
+          acquiredOn: lot.acquiredOn,
+          quantity: fmt(lot.remainingQuantity),
+          costBase: fmt(lot.remainingCostBase),
+          marketValue: priced.marketValue && unit ? fmt(lot.remainingQuantity.times(unit)) : null,
+        })),
+      });
+    }
+  }
+  return holdings;
 }

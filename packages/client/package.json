@@ -33,6 +33,7 @@
       "build": {
         "inputs": [
           "production",
+          "^production",
           "{workspaceRoot}/apps/backend/openapi.json"
         ],
         "outputs": [

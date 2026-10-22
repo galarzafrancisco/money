@@ -2,15 +2,14 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { hostname } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { AccountsRepository } from '../accounts/accounts.repository';
-import { dec, fmt } from '../common/decimal';
 import { APP_CONFIG, type AppConfig } from '../config/env.config';
 import { addDays, dateRange } from '../market-prices/market-calendar';
 import { toLedgerEntry } from '../transactions/transaction.mapper';
 import type { TransactionEntity } from '../transactions/transaction.entity';
 import { TransactionsRepository } from '../transactions/transactions.repository';
 import { PriceHistoryService } from './price-history.service';
-import { FINAL_STATUSES, positionsByDate, priceHolding } from './valuation-math';
-import { ValuationsRepository, type ValuationHoldingRow } from './valuations.repository';
+import { FINAL_STATUSES, holdingsOn, positionsByDate } from './valuation-math';
+import { ValuationsRepository } from './valuations.repository';
 
 export type UserRunSummary = {
   userId: string;
@@ -156,37 +155,7 @@ export class ValuationJobService {
     const series = await this.prices.getSeries([...symbols], { from: addDays(due[0], -cfg.maxCarryDays), to: today }, now);
 
     for (const date of due) {
-      const holdings: Omit<ValuationHoldingRow, 'date'>[] = [];
-      for (const { accountId, byDate } of positions) {
-        for (const position of byDate.get(date) ?? []) {
-          const priced = priceHolding(position, date, series.get(position.symbol), cfg.maxCarryDays);
-          const unit = priced.close ? fmt(dec(priced.close.close)) : null;
-          holdings.push({
-            accountId,
-            symbol: position.symbol,
-            currency: position.currency,
-            quantity: fmt(position.quantity),
-            costBase: fmt(position.costBase),
-            priceStatus: priced.status,
-            closePrice: unit,
-            priceCurrency: priced.close ? priced.series!.currency : null,
-            priceDate: priced.close?.tradingDate ?? null,
-            priceCloseTime: priced.close?.closeTime ?? null,
-            priceSource: priced.series?.source ?? null,
-            priceIsMock: priced.series ? priced.series.isMock : null,
-            exchangeTimezone: priced.series?.exchangeTimezone ?? null,
-            marketValue: priced.marketValue ? fmt(priced.marketValue) : null,
-            priceNote: priced.note,
-            lots: position.lots.map((lot) => ({
-              lotId: lot.lotId,
-              acquiredOn: lot.acquiredOn,
-              quantity: fmt(lot.remainingQuantity),
-              costBase: fmt(lot.remainingCostBase),
-              marketValue: priced.marketValue && unit ? fmt(lot.remainingQuantity.times(unit)) : null,
-            })),
-          });
-        }
-      }
+      const holdings = holdingsOn(positions, date, series, cfg.maxCarryDays);
       const complete = holdings.every((h) => FINAL_STATUSES.includes(h.priceStatus));
       await this.repo.replaceDay(userId, { date, status: complete ? 'COMPLETE' : 'PARTIAL', priceProvider: this.prices.providerName }, holdings);
       summary.datesComputed++;

@@ -117,7 +117,7 @@ A rendered manifest is not a deployment. Check a live rollout with
 | `TAICO_AUTHORIZATION_SERVERS` | `https://taico.app/mcp/money/0.0.0` | Advertised in protected-resource metadata: the authorization server of Taico's `money` MCP server entry |
 | `DATABASE_MODE` | `postgres` | Explicit, so a missing `DATABASE_URL` fails startup. See below |
 | `DATABASE_SSL` | `false` | The connection stays on the Spark host; spark-ops serves it without TLS |
-| `MARKET_PRICE_PROVIDER` | `mock` | Deterministic, labelled mock prices. `yahoo` is the unofficial, keyless opt-in |
+| `MARKET_PRICE_PROVIDER` | `yahoo` | Real (delayed, unofficial, keyless) Yahoo Finance prices, read store-first and throttled. Set `mock` for labelled made-up prices. See [market-prices.md](../apps/backend/docs/market-prices.md) for the caveats and the `MARKET_PRICE_*` tuning defaults |
 
 Browser sign-in ([web-auth.md](../apps/backend/docs/web-auth.md)) uses its
 defaults, so it needs no ConfigMap entries: `TAICO_WEB_SERVER_ID=money-api`,

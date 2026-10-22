@@ -48,6 +48,8 @@ describe('priceHolding', () => {
       exchangeTimezone: 'America/New_York',
       source: 'test',
       isMock: false,
+      adjustment: 'AS_TRADED',
+      splits: [],
       closes: closes.map(([tradingDate, close]) => ({ tradingDate, close, closeTime: null })),
     },
   });

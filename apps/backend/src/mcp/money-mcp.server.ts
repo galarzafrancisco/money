@@ -30,7 +30,7 @@ import { TransactionsService } from '../transactions/transactions.service';
 import { createTransferShape, listTransfersShape, updateTransferShape } from '../transfers/transfers.schemas';
 import { TransfersService } from '../transfers/transfers.service';
 import type { CurrentUser } from '../users/users.service';
-import { recomputeSchema, valuationHistorySchema } from '../valuations/valuations.schemas';
+import { recomputeSchema, valuationAsOfSchema, valuationHistorySchema } from '../valuations/valuations.schemas';
 import { ValuationsService } from '../valuations/valuations.service';
 
 const PERSONAL_TRACKING =
@@ -295,7 +295,7 @@ export class MoneyMcpServerFactory {
     );
     tool(
       'get_market_price',
-      'Latest market price for a ticker from the configured provider. Quotes with isMock: true are made-up development data.',
+      'Latest market price for a ticker from the configured provider, with source, currency and asOf. priceType LAST may be intraday and delayed; CLOSE is a finished session. isMock: true is made-up development data. isStale: true means the provider could not be reached and this is the last known price (staleReason, asOf).',
       read,
       { symbol: tickerSymbol },
       ({ symbol }) => this.prices.getQuote(symbol),
@@ -308,6 +308,13 @@ export class MoneyMcpServerFactory {
       (args) => this.valuations.history(user, args),
     );
     tool(
+      'get_valuation_as_of',
+      'Your holdings at the end of one past date (quantities and lots replayed from your transactions as of that date, never today\'s) valued at that date\'s closes. Uses the stored daily snapshot when complete and current (basis SNAPSHOT), else reconstructs it now (basis ON_DEMAND). baseCurrency converts at that date\'s historical FX close unless you pass fxRates. Check complete, price.status, warnings and conversionUnavailable.',
+      read,
+      valuationAsOfSchema.shape,
+      (args) => this.valuations.asOf(user, args),
+    );
+    tool(
       'get_valuation_status',
       'How far daily valuations are materialised (earliest/latest date, partial days, pending recomputation) and when the job last ran',
       read,
@@ -316,7 +323,7 @@ export class MoneyMcpServerFactory {
     );
     tool(
       'request_valuation_recompute',
-      'Ask the daily valuation job to re-value your holdings from a date on its next run. Backdated trades already trigger this automatically; use it to recover days whose prices were missing.',
+      'Ask the daily valuation job to re-value your holdings from a date on its next run. Backdated trades already trigger this automatically; use it to recover days whose prices were missing. refreshPrices: true also fetches the closes again from that date, to pick up provider corrections.',
       write,
       recomputeSchema.shape,
       (args) => this.valuations.requestRecompute(user, args),

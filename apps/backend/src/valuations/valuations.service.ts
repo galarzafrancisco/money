@@ -7,11 +7,21 @@ import { isUuid, parseInput } from '../common/validation';
 import { APP_CONFIG, type AppConfig } from '../config/env.config';
 import { addDays, daysBetween } from '../market-prices/market-calendar';
 import { assertRatesCover, type FxPolicy, type ValuationItem } from '../reports/aggregation';
+import { toLedgerEntry } from '../transactions/transaction.mapper';
+import type { TransactionEntity } from '../transactions/transaction.entity';
+import { TransactionsRepository } from '../transactions/transactions.repository';
 import type { CurrentUser } from '../users/users.service';
 import { PriceHistoryService } from './price-history.service';
 import { settledThrough } from './valuation-job.service';
-import { FINAL_STATUSES, type PriceStatus } from './valuation-math';
-import { recomputeSchema, valuationHistorySchema, type RecomputeInput, type ValuationHistoryInput } from './valuations.schemas';
+import { FINAL_STATUSES, holdingsOn, positionsByDate, type PriceStatus, type SeriesResult } from './valuation-math';
+import {
+  recomputeSchema,
+  valuationAsOfSchema,
+  valuationHistorySchema,
+  type RecomputeInput,
+  type ValuationAsOfInput,
+  type ValuationHistoryInput,
+} from './valuations.schemas';
 import { ValuationsRepository, type LotSnapshot, type ValuationHoldingRow } from './valuations.repository';
 
 const MAX_RANGE_DAYS = 3660;
@@ -53,18 +63,51 @@ export type HoldingSnapshotView = {
   lots: LotSnapshot[];
 };
 
+/** The rate one currency was converted at on one valuation date */
+export type FxRateUsed = {
+  currency: string;
+  /** Units of baseCurrency per unit of currency */
+  rate: string;
+  /** HISTORICAL: the pair's daily close on or before the date. CONSTANT: your fxRates. */
+  kind: 'HISTORICAL' | 'CONSTANT';
+  /** The FX close's date (HISTORICAL); null for CONSTANT */
+  tradingDate: string | null;
+  source: string;
+  isMock: boolean;
+};
+
+export type ConvertedTotals = {
+  baseCurrency: string;
+  marketValue: string;
+  costBase: string;
+  rates: FxRateUsed[];
+} | null;
+
 export type ValuationDayView = {
   date: string;
   /** Every in-scope holding is valued at its close (or the last close on a non-trading day) */
   complete: boolean;
   includesMockPrices: boolean;
+  /** A backdated change or price correction is waiting to be re-valued on this date; figures may change */
+  pendingRecompute: boolean;
   priceProvider: string;
   computedAt: string;
   totals: {
     byCurrency: CurrencyTotals[];
-    converted: { baseCurrency: string; marketValue: string; costBase: string } | null;
+    /** Null without baseCurrency, or when a currency has no rate for this date (see conversionUnavailable) */
+    converted: ConvertedTotals;
+    /** Currencies that could not be converted on this date, and why; converted is then null */
+    conversionUnavailable: { currency: string; reason: string }[];
   };
   holdings?: HoldingSnapshotView[];
+};
+
+export type FxView = {
+  baseCurrency: string;
+  policy: 'HISTORICAL' | 'CONSTANT';
+  /** CONSTANT only: your rates */
+  rates: Record<string, string> | null;
+  description: string;
 };
 
 export type ValuationHistory = {
@@ -73,15 +116,33 @@ export type ValuationHistory = {
   accountId: string | null;
   includeSubaccounts: boolean;
   symbol: string | null;
-  fx: (FxPolicy & { policy: string }) | null;
+  fx: FxView | null;
   days: ValuationDayView[];
+  notes: string[];
+};
+
+export type ValuationAsOfView = ValuationDayView & {
+  /**
+   * SNAPSHOT: the materialised valuation of that date. ON_DEMAND: worked out
+   * now by replaying the ledger to that date and pricing at stored closes
+   * (fetching missing ones), because no up-to-date complete snapshot exists.
+   */
+  basis: 'SNAPSHOT' | 'ON_DEMAND';
+  basisReason: string;
+  accountId: string | null;
+  includeSubaccounts: boolean;
+  symbol: string | null;
+  fx: FxView | null;
+  holdings: HoldingSnapshotView[];
+  warnings: string[];
   notes: string[];
 };
 
 const NOTES = [
   'Each valuation date values what was held at the end of that date (historical quantities and lots, matched by each sale\'s own lot allocations or FIFO) at the closing price of that trading date on the holding\'s own exchange, in its local time zone.',
   'price.status: CLOSE = that day\'s close; NON_TRADING_DAY = weekend or holiday, valued at the last close (price.tradingDate); PRICE_PENDING = no close yet, provisionally valued at the last close and re-tried; MISSING / CURRENCY_MISMATCH = not valued (marketValue null, excluded from totals.marketValue).',
-  'Totals are per currency; currencies are never added together unless you pass baseCurrency and fxRates, which are applied as constant rates to every day (not historical exchange rates).',
+  'Totals are per currency; currencies are never added together unless you pass baseCurrency. Then each date is converted at that date\'s historical FX close (the latest within VALUATION_MAX_CARRY_DAYS on or before it, shown in converted.rates), or, if you also pass fxRates, at your constant rates for every date. A date with no usable rate has converted null and conversionUnavailable says why.',
+  'Closes are the prices traded on each date (not adjusted for later splits or dividends) and quantities are as recorded; splits are not modelled, and a split while held is flagged in price.note.',
   'Snapshots hold no categories: join with your current categories by accountId and symbol. Mock prices (isMock: true) are made up.',
   'Personal tracking only, not financial or tax advice.',
 ];
@@ -93,6 +154,7 @@ export class ValuationsService {
     @Inject(APP_CONFIG) private readonly config: AppConfig,
     private readonly repo: ValuationsRepository,
     private readonly accounts: AccountsRepository,
+    private readonly transactions: TransactionsRepository,
     private readonly prices: PriceHistoryService,
   ) {}
 
@@ -109,12 +171,14 @@ export class ValuationsService {
       throw new ValidationError(`include=holdings allows at most ${MAX_HOLDINGS_RANGE_DAYS} days per request; narrow the range or use include=totals`);
     }
 
-    const [days, holdings] = await Promise.all([
+    const [days, holdings, requests] = await Promise.all([
       this.repo.listDays(user.id, fromDate, toDate),
       this.repo.listHoldings(user.id, fromDate, toDate, { accountIds, symbol: options.symbol }),
+      this.repo.recomputeRequests(user.id),
     ]);
-    const fx = options.baseCurrency ? { baseCurrency: options.baseCurrency, rates: options.fxRates ?? {} } : null;
-    assertRatesCover([...new Set(holdings.map((h) => h.currency))].map((currency) => ({ currency }) as ValuationItem), fx);
+    const currencies = [...new Set(holdings.map((h) => h.currency))];
+    const fx = await this.conversion(currencies, options, fromDate, toDate);
+    const pendingFrom = pendingRecomputeFrom(requests, accountIds);
 
     const byDate = new Map<string, ValuationHoldingRow[]>();
     for (const h of holdings) byDate.set(h.date, [...(byDate.get(h.date) ?? []), h]);
@@ -125,21 +189,149 @@ export class ValuationsService {
       accountId: options.accountId ?? null,
       includeSubaccounts: options.includeSubaccounts,
       symbol: options.symbol ?? null,
-      fx: fx ? { ...fx, policy: 'Constant caller-supplied rates (units of baseCurrency per unit), applied to every date. Not historical FX.' } : null,
+      fx: fx?.view ?? null,
       days: days.map((day) => {
         const rows = byDate.get(day.date) ?? [];
         const view: ValuationDayView = {
           date: day.date,
           complete: rows.every((h) => FINAL_STATUSES.includes(h.priceStatus)),
           includesMockPrices: rows.some((h) => h.priceIsMock === true),
+          pendingRecompute: pendingFrom !== null && day.date >= pendingFrom,
           priceProvider: day.priceProvider,
           computedAt: day.computedAt.toISOString(),
-          totals: totalsOf(rows, fx),
+          totals: totalsOf(rows, fx ? (currency) => fx.rateOn(currency, day.date) : null, fx?.view.baseCurrency ?? null),
         };
         if (options.include === 'holdings') view.holdings = rows.map(holdingView);
         return view;
       }),
       notes: NOTES,
+    };
+  }
+
+  /**
+   * Holdings and value as of the end of one date. Uses the materialised
+   * snapshot when it is complete and up to date; otherwise reconstructs it
+   * on demand with the job's own code (ledger replay to that date, closes
+   * from the shared store, missing ones fetched). Nothing is stored by this
+   * read: the job materialises the date on its next run.
+   */
+  async asOf(user: CurrentUser, input: ValuationAsOfInput, now: Date = new Date()): Promise<ValuationAsOfView> {
+    const options = parseInput(valuationAsOfSchema, input);
+    const today = now.toISOString().slice(0, 10);
+    if (options.date > today) throw new ValidationError(`date must not be after today (${today})`);
+    const all = await this.accounts.list(user.id);
+    const accountIds = options.accountId ? await this.scope(user, options.accountId, options.includeSubaccounts) : all.map((a) => a.id);
+    const inScope = new Set(accountIds);
+    const cfg = this.config.valuations;
+
+    const [days, requests] = await Promise.all([this.repo.listDays(user.id, options.date, options.date), this.repo.recomputeRequests(user.id)]);
+    const day = days[0];
+    const pendingFrom = pendingRecomputeFrom(requests, options.accountId ? accountIds : undefined);
+    const pending = pendingFrom !== null && options.date >= pendingFrom;
+    let reason: string | null = null;
+    if (!day) reason = 'No snapshot is materialised for this date';
+    else if (day.priceProvider !== this.prices.providerName) reason = `The snapshot was priced by ${day.priceProvider}, not ${this.prices.providerName}`;
+    else if (pending) reason = 'A backdated change or price correction affects this date and has not been re-valued yet';
+    else if (day.status !== 'COMPLETE') reason = 'The snapshot has pending or missing prices; re-checked now';
+
+    let rows: ValuationHoldingRow[];
+    let computedAt: string;
+    const warnings: string[] = [];
+    if (reason === null) {
+      rows = await this.repo.listHoldings(user.id, options.date, options.date, { accountIds, symbol: options.symbol });
+      computedAt = day!.computedAt.toISOString();
+    } else {
+      const entries = (await this.transactions.list(user.id, {})).filter((t) => inScope.has(t.accountId));
+      const byAccount = new Map<string, TransactionEntity[]>();
+      for (const row of entries) byAccount.set(row.accountId, [...(byAccount.get(row.accountId) ?? []), row]);
+      const positions = accountIds.map((accountId) => ({
+        accountId,
+        byDate: positionsByDate((byAccount.get(accountId) ?? []).map(toLedgerEntry), [options.date]),
+      }));
+      const symbols = new Set<string>();
+      for (const { byDate } of positions) for (const p of byDate.get(options.date) ?? []) if (!options.symbol || p.symbol === options.symbol) symbols.add(p.symbol);
+      // Back far enough to carry a previous close; a little forward so a later session reveals a holiday
+      const later = addDays(options.date, cfg.maxCarryDays);
+      const series = await this.prices.getSeries([...symbols], { from: addDays(options.date, -cfg.maxCarryDays), to: later < today ? later : today }, now);
+      warnings.push(...seriesWarnings(series));
+      rows = holdingsOn(positions, options.date, series, cfg.maxCarryDays)
+        .filter((h) => !options.symbol || h.symbol === options.symbol)
+        .map((h) => ({ ...h, date: options.date }));
+      computedAt = now.toISOString();
+    }
+
+    const fx = await this.conversion([...new Set(rows.map((h) => h.currency))], options, options.date, options.date, now);
+    if (rows.some((h) => h.priceIsMock)) warnings.push('Some prices are mock (made-up development data). Do not rely on these values.');
+    const totals = totalsOf(rows, fx ? (currency) => fx.rateOn(currency, options.date) : null, fx?.view.baseCurrency ?? null);
+    for (const missing of totals.conversionUnavailable) warnings.push(`No ${missing.currency}→${fx!.view.baseCurrency} rate for ${options.date}: ${missing.reason}`);
+    return {
+      date: options.date,
+      basis: reason === null ? 'SNAPSHOT' : 'ON_DEMAND',
+      basisReason: reason ?? 'A complete, up-to-date snapshot of this date exists',
+      accountId: options.accountId ?? null,
+      includeSubaccounts: options.includeSubaccounts,
+      symbol: options.symbol ?? null,
+      complete: rows.every((h) => FINAL_STATUSES.includes(h.priceStatus)),
+      includesMockPrices: rows.some((h) => h.priceIsMock === true),
+      pendingRecompute: pending,
+      priceProvider: reason === null ? day!.priceProvider : this.prices.providerName,
+      computedAt,
+      fx: fx?.view ?? null,
+      totals,
+      holdings: rows.map(holdingView),
+      warnings,
+      notes: NOTES,
+    };
+  }
+
+  /**
+   * How totals are converted to baseCurrency: your constant fxRates, or else
+   * each date's historical FX close from the shared price store.
+   */
+  private async conversion(
+    currencies: string[],
+    options: { baseCurrency?: string; fxRates?: Record<string, string> },
+    fromDate: string,
+    toDate: string,
+    now: Date = new Date(),
+  ): Promise<{ view: FxView; rateOn: (currency: string, date: string) => FxRateUsed | { error: string } } | null> {
+    const base = options.baseCurrency;
+    if (!base) return null;
+    if (options.fxRates) {
+      const policy: FxPolicy = { baseCurrency: base, rates: options.fxRates };
+      assertRatesCover(currencies.map((currency) => ({ currency }) as ValuationItem), policy);
+      return {
+        view: {
+          baseCurrency: base,
+          policy: 'CONSTANT',
+          rates: options.fxRates,
+          description: 'Constant caller-supplied rates (units of baseCurrency per unit), applied to every date. Not historical FX.',
+        },
+        rateOn: (currency) => ({ currency, rate: currency === base ? '1' : options.fxRates![currency], kind: 'CONSTANT', tradingDate: null, source: 'manual', isMock: false }),
+      };
+    }
+    const maxCarry = this.config.valuations.maxCarryDays;
+    const foreign = currencies.filter((c) => c !== base);
+    const pairOf = (currency: string) => `${currency}${base}=X`;
+    const series = foreign.length > 0 ? await this.prices.getSeries(foreign.map(pairOf), { from: addDays(fromDate, -maxCarry), to: toDate }, now) : new Map<string, SeriesResult>();
+    return {
+      view: {
+        baseCurrency: base,
+        policy: 'HISTORICAL',
+        rates: null,
+        description: `Each date is converted at the daily FX close of that date (or the latest one up to ${maxCarry} days before it) from ${this.prices.providerName}, shown per date in converted.rates.`,
+      },
+      rateOn: (currency, date) => {
+        if (currency === base) return { currency, rate: '1', kind: 'HISTORICAL', tradingDate: date, source: 'identity', isMock: false };
+        const result = series.get(pairOf(currency));
+        if (!result) return { error: 'No FX history was looked up' };
+        if (result.error !== undefined) return { error: result.error };
+        if (!result.series) return { error: `${this.prices.providerName} has no ${currency}→${base} history` };
+        if (result.series.currency !== base) return { error: `The ${pairOf(currency)} series is in ${result.series.currency}, not ${base}` };
+        const close = [...result.series.closes].reverse().find((c) => c.tradingDate <= date);
+        if (!close || daysBetween(close.tradingDate, date) > maxCarry) return { error: `No ${currency}→${base} close within ${maxCarry} days before ${date}` };
+        return { currency, rate: fmt(dec(close.close)), kind: 'HISTORICAL', tradingDate: close.tradingDate, source: result.series.source, isMock: result.series.isMock };
+      },
     };
   }
 
@@ -169,7 +361,21 @@ export class ValuationsService {
       ? await this.scope(user, options.accountId, true)
       : (await this.accounts.list(user.id)).map((a) => a.id);
     await this.repo.requestRecompute(user.id, accountIds, options.fromDate);
-    return { requested: true as const, fromDate: options.fromDate, accounts: accountIds.length, note: 'Dates from fromDate are re-valued on the next job run.' };
+    let refreshedSymbols: string[] = [];
+    if (options.refreshPrices) {
+      const scope = new Set(accountIds);
+      refreshedSymbols = [...new Set((await this.transactions.list(user.id, {})).filter((t) => scope.has(t.accountId) && t.symbol && (t.type === 'BUY' || t.type === 'SELL')).map((t) => t.symbol!))].sort();
+      for (const symbol of refreshedSymbols) await this.prices.refresh(symbol, options.fromDate);
+    }
+    return {
+      requested: true as const,
+      fromDate: options.fromDate,
+      accounts: accountIds.length,
+      refreshedSymbols,
+      note: options.refreshPrices
+        ? 'Closes of these symbols from fromDate are fetched again on the next job run; corrected closes replace the stored ones, and dates from fromDate are re-valued.'
+        : 'Dates from fromDate are re-valued on the next job run, from the stored closes.',
+    };
   }
 
   private async scope(user: CurrentUser, accountId: string, includeSubaccounts: boolean): Promise<string[]> {
@@ -180,7 +386,11 @@ export class ValuationsService {
   }
 }
 
-function totalsOf(rows: readonly ValuationHoldingRow[], fx: FxPolicy | null): ValuationDayView['totals'] {
+function totalsOf(
+  rows: readonly ValuationHoldingRow[],
+  rateOf: ((currency: string) => FxRateUsed | { error: string }) | null,
+  baseCurrency: string | null,
+): ValuationDayView['totals'] {
   const by = new Map<string, { marketValue: MoneyDecimal; costBase: MoneyDecimal; holdings: number; unvalued: number; provisional: number }>();
   for (const h of rows) {
     const t = by.get(h.currency) ?? { marketValue: ZERO, costBase: ZERO, holdings: 0, unvalued: 0, provisional: 0 };
@@ -191,16 +401,24 @@ function totalsOf(rows: readonly ValuationHoldingRow[], fx: FxPolicy | null): Va
     if (h.priceStatus === 'PRICE_PENDING') t.provisional++;
     by.set(h.currency, t);
   }
-  let converted: ValuationDayView['totals']['converted'] = null;
-  if (fx) {
+  let converted: ConvertedTotals = null;
+  const conversionUnavailable: { currency: string; reason: string }[] = [];
+  if (rateOf && baseCurrency) {
     let marketValue = ZERO;
     let costBase = ZERO;
-    for (const [currency, t] of by) {
-      const rate = currency === fx.baseCurrency ? dec(1) : dec(fx.rates[currency]);
-      marketValue = marketValue.plus(t.marketValue.times(rate));
-      costBase = costBase.plus(t.costBase.times(rate));
+    const rates: FxRateUsed[] = [];
+    for (const [currency, t] of [...by.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+      const rate = rateOf(currency);
+      if ('error' in rate) {
+        conversionUnavailable.push({ currency, reason: rate.error });
+        continue;
+      }
+      if (currency !== baseCurrency) rates.push(rate);
+      marketValue = marketValue.plus(t.marketValue.times(rate.rate));
+      costBase = costBase.plus(t.costBase.times(rate.rate));
     }
-    converted = { baseCurrency: fx.baseCurrency, marketValue: fmt(marketValue), costBase: fmt(costBase) };
+    // Never a total that silently leaves a currency out
+    if (conversionUnavailable.length === 0) converted = { baseCurrency, marketValue: fmt(marketValue), costBase: fmt(costBase), rates };
   }
   return {
     byCurrency: [...by.entries()]
@@ -214,7 +432,23 @@ function totalsOf(rows: readonly ValuationHoldingRow[], fx: FxPolicy | null): Va
         provisionalHoldings: t.provisional,
       })),
     converted,
+    conversionUnavailable,
   };
+}
+
+/** The earliest pending re-valuation date for the accounts in scope (all of the user's when undefined) */
+function pendingRecomputeFrom(requests: readonly { accountId: string; fromDate: string }[], accountIds: readonly string[] | undefined): string | null {
+  const relevant = accountIds ? requests.filter((r) => accountIds.includes(r.accountId)) : requests;
+  return relevant.reduce<string | null>((min, r) => (min === null || r.fromDate < min ? r.fromDate : min), null);
+}
+
+function seriesWarnings(series: Map<string, SeriesResult>): string[] {
+  const warnings: string[] = [];
+  for (const [symbol, result] of series) {
+    if (result.error !== undefined) warnings.push(`No closes for ${symbol}: ${result.error}`);
+    else if (result.warning) warnings.push(result.warning);
+  }
+  return warnings;
 }
 
 function holdingView(h: ValuationHoldingRow): HoldingSnapshotView {

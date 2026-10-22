@@ -16,6 +16,8 @@ import { dataSourceOptions } from './database/data-source-options';
 import { UnitOfWork } from './database/unit-of-work';
 import { HealthController } from './health/health.controller';
 import { MARKET_PRICE_PROVIDER, type MarketPriceProvider } from './market-prices/market-price.port';
+import { PriceStoreRepository } from './market-prices/price-store.repository';
+import { ThrottledPriceProvider } from './market-prices/throttled-price.provider';
 import { MarketPricesService } from './market-prices/market-prices.service';
 import { MockPriceProvider } from './market-prices/mock-price.provider';
 import { YahooPriceProvider } from './market-prices/yahoo-price.provider';
@@ -56,6 +58,18 @@ export function priceProviderFor(config: AppConfig): MarketPriceProvider {
   return config.marketPrices.provider === 'yahoo' ? new YahooPriceProvider() : new MockPriceProvider();
 }
 
+/** Every caller shares one request limit and retry policy (market-prices/throttled-price.provider.ts) */
+function throttled(provider: MarketPriceProvider, config: AppConfig): MarketPriceProvider {
+  const { maxConcurrent, minIntervalMs, retries } = config.marketPrices;
+  return new ThrottledPriceProvider(provider, {
+    maxConcurrent,
+    minIntervalMs,
+    retries,
+    retryBaseMs: config.nodeEnv === 'test' ? 1 : 1000,
+    maxRetryDelayMs: config.nodeEnv === 'test' ? 5 : 30_000,
+  });
+}
+
 @Global()
 @Module({})
 export class AppModule implements NestModule {
@@ -74,7 +88,7 @@ export class AppModule implements NestModule {
       controllers: [HealthController, ...REST_CONTROLLERS, McpController, WebAuthController],
       providers: [
         { provide: APP_CONFIG, useValue: config },
-        { provide: MARKET_PRICE_PROVIDER, useValue: options.priceProvider ?? priceProviderFor(config) },
+        { provide: MARKET_PRICE_PROVIDER, useValue: throttled(options.priceProvider ?? priceProviderFor(config), config) },
         { provide: APP_FILTER, useClass: AuthExceptionFilter },
         { provide: APP_FILTER, useClass: DomainErrorFilter },
         UnitOfWork,
@@ -93,6 +107,7 @@ export class AppModule implements NestModule {
         TransfersRepository,
         TransfersService,
         PortfolioService,
+        PriceStoreRepository,
         MarketPricesService,
         PriceHistoryService,
         ValuationsRepository,

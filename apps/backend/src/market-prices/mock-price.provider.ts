@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { UpstreamError } from '../common/errors';
 import { dec, fmt } from '../common/decimal';
 import { dateRange, isWeekend, zonedTimeToUtc } from './market-calendar';
-import type { DailyClose, DailyCloseSeries, FxQuote, MarketPriceProvider, Quote } from './market-price.port';
+import type { DailyClose, DailyCloseSeries, FxQuote, MarketPriceProvider, Quote, Split } from './market-price.port';
 
 /**
  * MOCK prices, for development and tests. A symbol's price is derived from a
@@ -16,7 +16,8 @@ import type { DailyClose, DailyCloseSeries, FxQuote, MarketPriceProvider, Quote 
  *
  * FX rates are made up too: each currency has a fixed mock value in USD
  * (AUD 0.65, EUR 1.08, …) and a pair's rate is the ratio, unless a test sets
- * one. Unknown currencies have no rate.
+ * one. Unknown currencies have no rate. Daily history of a pair uses Yahoo's
+ * symbol form, e.g. "AUDUSD=X" (USD per AUD), closing at 23:00 London time.
  */
 export class MockPriceProvider implements MarketPriceProvider {
   readonly name = 'mock';
@@ -25,8 +26,24 @@ export class MockPriceProvider implements MarketPriceProvider {
   private readonly holidays = new Set<string>();
   private readonly failing = new Set<string>();
   private readonly fxOverrides = new Map<string, string | null>();
+  private readonly splits = new Map<string, Split[]>();
+  private readonly unknown = new Set<string>();
   /** Calls to getDailyCloses, for tests */
   dailyCloseCalls = 0;
+  /** Every getDailyCloses request, for tests */
+  dailyCloseRequests: { symbol: string; from: string; to: string }[] = [];
+  /** Calls to getQuote, for tests */
+  quoteCalls = 0;
+
+  /** Records a split (closes stay as traded, as the port requires) */
+  addSplit(symbol: string, split: Split): void {
+    this.splits.set(symbol.toUpperCase(), [...(this.splits.get(symbol.toUpperCase()) ?? []), split]);
+  }
+
+  /** The provider does not know this symbol (null, like Yahoo's 404) */
+  setUnknown(symbol: string): void {
+    this.unknown.add(symbol.toUpperCase());
+  }
 
   setPrice(symbol: string, price: string, currency?: string): void {
     this.overrides.set(symbol.toUpperCase(), { price, currency });
@@ -59,11 +76,20 @@ export class MockPriceProvider implements MarketPriceProvider {
     this.closeOverrides.clear();
     this.holidays.clear();
     this.failing.clear();
+    this.splits.clear();
+    this.unknown.clear();
     this.dailyCloseCalls = 0;
+    this.dailyCloseRequests = [];
+    this.quoteCalls = 0;
   }
 
-  async getQuote(symbol: string): Promise<Quote> {
+  async getQuote(symbol: string): Promise<Quote | null> {
+    this.quoteCalls++;
     const upper = symbol.toUpperCase();
+    if (this.failing.has(upper) || this.failing.has('*')) {
+      throw new UpstreamError(`Mock price for ${upper} is unavailable (simulated provider failure)`);
+    }
+    if (this.unknown.has(upper)) return null;
     const override = this.overrides.get(upper);
     return {
       symbol: upper,
@@ -72,6 +98,7 @@ export class MockPriceProvider implements MarketPriceProvider {
       asOf: new Date().toISOString(),
       source: this.name,
       isMock: true,
+      priceType: 'LAST',
     };
   }
 
@@ -79,37 +106,41 @@ export class MockPriceProvider implements MarketPriceProvider {
     const key = `${from.toUpperCase()}|${to.toUpperCase()}`;
     if (this.failing.has('*')) throw new UpstreamError(`Mock FX rate ${from}→${to} is unavailable (simulated provider failure)`);
     let rate: string | null | undefined = this.fxOverrides.get(key);
-    if (rate === undefined) {
-      const fromUsd = MOCK_USD_VALUE[from.toUpperCase()];
-      const toUsd = MOCK_USD_VALUE[to.toUpperCase()];
-      rate = fromUsd && toUsd ? fmt(dec(fromUsd).dividedBy(toUsd).toDecimalPlaces(6)) : null;
-    }
+    if (rate === undefined) rate = mockFxRate(from.toUpperCase(), to.toUpperCase());
     if (rate === null) return null;
     return { from: from.toUpperCase(), to: to.toUpperCase(), rate, asOf: new Date().toISOString(), source: this.name, isMock: true };
   }
 
-  async getDailyCloses(symbol: string, range: { from: string; to: string }, now: Date): Promise<DailyCloseSeries> {
+  async getDailyCloses(symbol: string, range: { from: string; to: string }, now: Date): Promise<DailyCloseSeries | null> {
     this.dailyCloseCalls++;
     const upper = symbol.toUpperCase();
+    this.dailyCloseRequests.push({ symbol: upper, from: range.from, to: range.to });
     if (this.failing.has(upper) || this.failing.has('*')) {
       throw new UpstreamError(`Mock price history for ${upper} is unavailable (simulated provider failure)`);
     }
+    if (this.unknown.has(upper)) return null;
+    const pair = /^([A-Z]{3})([A-Z]{3})=X$/.exec(upper);
+    const pairKey = pair ? `${pair[1]}|${pair[2]}` : '';
+    const fxRate = pair ? (this.fxOverrides.has(pairKey) ? this.fxOverrides.get(pairKey)! : mockFxRate(pair[1], pair[2])) : null;
+    if (pair && !fxRate) return null;
     const override = this.overrides.get(upper);
-    const { timeZone, closeAt } = mockExchange(upper);
+    const { timeZone, closeAt } = pair ? { timeZone: 'Europe/London', closeAt: '23:00' } : mockExchange(upper);
     const closes: DailyClose[] = [];
     for (const date of dateRange(range.from, range.to)) {
-      if (isWeekend(date) || this.holidays.has(date)) continue;
+      if (isWeekend(date) || (!pair && this.holidays.has(date))) continue;
       const closeTime = zonedTimeToUtc(date, closeAt, timeZone);
       if (closeTime.getTime() > now.getTime()) continue;
-      const close = this.closeOverrides.get(`${upper}|${date}`) ?? override?.price ?? mockClose(upper, date);
+      const close = this.closeOverrides.get(`${upper}|${date}`) ?? fxRate ?? override?.price ?? mockClose(upper, date);
       closes.push({ tradingDate: date, close, closeTime: closeTime.toISOString() });
     }
     return {
       symbol: upper,
-      currency: override?.currency ?? guessCurrency(upper),
+      currency: pair ? pair[2] : (override?.currency ?? guessCurrency(upper)),
       exchangeTimezone: timeZone,
       source: this.name,
       isMock: true,
+      adjustment: 'AS_TRADED',
+      splits: (this.splits.get(upper) ?? []).filter((s) => s.date > range.from).sort((a, b) => a.date.localeCompare(b.date)),
       closes,
     };
   }
@@ -117,6 +148,12 @@ export class MockPriceProvider implements MarketPriceProvider {
 
 /** Made-up value of one unit of each currency in USD, for mock FX rates */
 const MOCK_USD_VALUE: Record<string, string> = { USD: '1', AUD: '0.65', EUR: '1.08', GBP: '1.27', CAD: '0.73', NZD: '0.6', JPY: '0.0067' };
+
+function mockFxRate(from: string, to: string): string | null {
+  const fromUsd = MOCK_USD_VALUE[from];
+  const toUsd = MOCK_USD_VALUE[to];
+  return fromUsd && toUsd ? fmt(dec(fromUsd).dividedBy(toUsd).toDecimalPlaces(6)) : null;
+}
 
 function hashOf(value: string): number {
   return createHash('sha256').update(value).digest().readUInt32BE(0);

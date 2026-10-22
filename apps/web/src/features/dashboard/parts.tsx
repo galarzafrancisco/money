@@ -72,7 +72,7 @@ export function DataQuality({ dashboard, onManualRates }: { dashboard: Dashboard
         {fx.rates.map((r) => (
           <Text key={r.currency} size="sm" tone="muted" as="span">
             1 {r.currency} = <Amount value={r.rate} kind="rate" /> {fx.displayCurrency}{' '}
-            {r.source === 'manual' ? '(your rate)' : `(${r.isMock ? 'mock rate' : r.provider}${r.asOf ? `, ${r.asOf.slice(0, 16).replace('T', ' ')} UTC` : ''})`}
+            {r.source === 'manual' ? '(your rate)' : `(${r.isMock ? 'mock rate' : r.provider}${r.asOf ? `, ${r.asOf.slice(0, 16).replace('T', ' ')} UTC` : ''}${r.isStale ? ', last known rate: provider unreachable' : ''})`}
           </Text>
         ))}
         {hasManual && (

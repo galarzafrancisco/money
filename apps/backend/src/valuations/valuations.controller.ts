@@ -4,8 +4,8 @@ import { AuthenticatedUser } from '../auth/user.guard';
 import { ApiRoute } from '../openapi/api-route.decorator';
 import { apiSchema } from '../openapi/api-schemas';
 import type { CurrentUser } from '../users/users.service';
-import { recomputeResultSchema, valuationHistoryResultSchema, valuationStatusSchema } from './valuations.responses';
-import { recomputeSchema, valuationHistorySchema } from './valuations.schemas';
+import { recomputeResultSchema, valuationAsOfResultSchema, valuationHistoryResultSchema, valuationStatusSchema } from './valuations.responses';
+import { recomputeSchema, valuationAsOfSchema, valuationHistorySchema } from './valuations.schemas';
 import { ValuationsService } from './valuations.service';
 
 @Controller('api/valuations')
@@ -20,13 +20,26 @@ export class ValuationsController {
     return this.valuations.history(user, query as never);
   }
 
+  /** Query: date, accountId, includeSubaccounts, symbol, baseCurrency, fxRates */
+  @Get('as-of')
+  @ApiRoute({
+    tag: 'valuations',
+    operationId: 'getValuationAsOf',
+    summary: 'Holdings and their value at the close of one date: the snapshot, or reconstructed on demand',
+    query: valuationAsOfSchema,
+    response: valuationAsOfResultSchema,
+  })
+  asOf(@AuthenticatedUser() user: CurrentUser, @Query() query: Record<string, unknown>) {
+    return this.valuations.asOf(user, query as never);
+  }
+
   @Get('status')
   @ApiRoute({ tag: 'valuations', operationId: 'getValuationStatus', summary: 'State of the daily valuation job for you', response: valuationStatusSchema })
   status(@AuthenticatedUser() user: CurrentUser) {
     return this.valuations.status(user);
   }
 
-  /** Body: { fromDate, accountId? } */
+  /** Body: { fromDate, accountId?, refreshPrices? } */
   @Post('recompute')
   @HttpCode(202)
   @ApiRoute({ tag: 'valuations', operationId: 'requestValuationRecompute', summary: 'Re-value dates from fromDate on the next job run', body: apiSchema('ValuationRecomputeRequest', recomputeSchema), response: recomputeResultSchema })

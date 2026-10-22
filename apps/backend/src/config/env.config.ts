@@ -35,7 +35,16 @@ export type AppConfig = {
   webAuth: WebAuthConfig;
   marketPrices: {
     provider: MarketPriceProviderName;
+    /** How long a latest quote or FX rate is reused before asking the provider again */
     cacheSeconds: number;
+    /** Provider requests in flight at once, shared by every caller */
+    maxConcurrent: number;
+    /** Minimum gap between the starts of two provider requests */
+    minIntervalMs: number;
+    /** Extra attempts after a transient provider failure (HTTP 429/5xx, timeout) */
+    retries: number;
+    /** Longest gap of stored history fetched in one request; longer gaps are fetched in parts */
+    maxFetchDays: number;
   };
   /** The daily closing-price valuation job (see docs/valuations.md) */
   valuations: {
@@ -126,7 +135,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     webAuth: loadWebAuthConfig(env, nodeEnv, issuer, publicBaseUrl),
     marketPrices: {
       provider,
-      cacheSeconds: parseInt(env.MARKET_PRICE_CACHE_SECONDS ?? '300', 10),
+      cacheSeconds: intEnv(env, 'MARKET_PRICE_CACHE_SECONDS', 300, 0, 24 * 3600),
+      maxConcurrent: intEnv(env, 'MARKET_PRICE_MAX_CONCURRENT', 2, 1, 16),
+      minIntervalMs: intEnv(env, 'MARKET_PRICE_MIN_INTERVAL_MS', provider === 'yahoo' ? 250 : 0, 0, 60_000),
+      retries: intEnv(env, 'MARKET_PRICE_RETRIES', 2, 0, 5),
+      maxFetchDays: intEnv(env, 'MARKET_PRICE_MAX_FETCH_DAYS', 3660, 31, 36600),
     },
     valuations: {
       jobEnabled: (env.VALUATION_JOB_ENABLED ?? (nodeEnv === 'test' ? 'false' : 'true')) === 'true',

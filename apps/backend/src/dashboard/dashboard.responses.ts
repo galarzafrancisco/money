@@ -38,6 +38,7 @@ export const dashboardSchema = apiSchema(
           provider: z.string().nullable(),
           asOf: z.string().nullable(),
           isMock: z.boolean(),
+          isStale: z.boolean().describe('The provider could not be reached; this is the last known rate (see asOf)'),
         }),
       ),
       missing: z.array(z.object({ currency: z.string(), reason: z.string() })).describe('Currencies without a rate; converted figures and percentages are null'),
@@ -90,7 +91,7 @@ export const dashboardSchema = apiSchema(
           percentOfShares: percent('Denominator: the share portfolio'),
           percentOfTotal: percent('Denominator: total tracked assets'),
           priceStatus,
-          price: z.object({ price: decimalOut(), asOf: z.string(), source: z.string(), isMock: z.boolean() }).nullable(),
+          price: z.object({ price: decimalOut(), asOf: z.string(), source: z.string(), isMock: z.boolean(), isStale: z.boolean().describe('The provider failed; this is the last known price (see asOf)') }).nullable(),
           positions: z.array(
             z.object({ accountId: z.string(), accountPath: z.array(z.string()), quantity: decimalOut(), value: decimalOut(), basis: z.enum(['cash', 'market', 'cost']) }),
           ),

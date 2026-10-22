@@ -30,11 +30,13 @@ describe('dashboard maths', () => {
 
   it('rates price quality: cost fallback, mock, stale, market', () => {
     const now = new Date('2026-10-22T00:00:00Z');
-    const price = (asOf: string, isMock = false) => ({ price: '1', asOf, source: 'yahoo', isMock });
+    const price = (asOf: string, isMock = false, isStale = false) => ({ price: '1', asOf, source: 'yahoo', isMock, isStale });
     expect(priceStatusOf({ basis: 'cost', price: null }, now)).toBe('COST_FALLBACK');
     expect(priceStatusOf({ basis: 'market', price: price('2026-10-21T00:00:00Z', true) }, now)).toBe('MOCK');
     expect(priceStatusOf({ basis: 'market', price: price('2026-10-10T00:00:00Z') }, now)).toBe('STALE');
     expect(priceStatusOf({ basis: 'market', price: price('2026-10-18T00:00:00Z') }, now)).toBe('MARKET');
+    // A recent price served from cache because the provider is down is still stale
+    expect(priceStatusOf({ basis: 'market', price: price('2026-10-21T00:00:00Z', false, true) }, now)).toBe('STALE');
     expect(worstStatus(['MARKET', 'STALE', 'MOCK'])).toBe('STALE');
     expect(worstStatus([])).toBe('MARKET');
   });

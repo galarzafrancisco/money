@@ -41,7 +41,7 @@ export type ItemView = {
   value: string;
   costBase: string | null;
   basis: 'cash' | 'market' | 'cost';
-  price: { price: string; asOf: string; source: string; isMock: boolean } | null;
+  price: { price: string; asOf: string; source: string; isMock: boolean; isStale: boolean } | null;
   category: CategoryRef;
   categorySource: CategorySource;
 };
@@ -199,7 +199,7 @@ export class ReportsService {
             ...base,
             value: dec(quote.price).times(position.quantity),
             basis: 'market',
-            price: { price: quote.price, asOf: quote.asOf, source: quote.source, isMock: quote.isMock },
+            price: { price: quote.price, asOf: quote.asOf, source: quote.source, isMock: quote.isMock, isStale: quote.isStale },
           });
           continue;
         }
@@ -212,6 +212,10 @@ export class ReportsService {
         warnings.push(`${position.symbol} in "${account.name}" is valued at cost base: ${reason}`);
         items.push({ ...base, value: position.costBase, basis: 'cost', price: null });
       }
+    }
+    const stale = items.filter((i) => i.price?.isStale);
+    if (stale.length > 0) {
+      warnings.push(`The price provider could not be reached for ${[...new Set(stale.map((i) => i.symbol))].join(', ')}; the last known prices are used (isStale: true, see asOf).`);
     }
     if (items.some((i) => i.price?.isMock)) {
       warnings.push('Some prices are mock (made-up development data, isMock: true). Do not rely on these valuations.');

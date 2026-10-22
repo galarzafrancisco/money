@@ -186,6 +186,20 @@ export class ValuationsRepository {
     }
   }
 
+  /**
+   * A shared close of `symbol` changed (a provider correction found by a
+   * refresh): every account, of any user, that has traded the symbol is
+   * re-valued from that date. System-initiated; nothing is returned to anyone.
+   */
+  async requestRecomputeForSymbol(symbol: string, fromDate: string): Promise<void> {
+    await this.db.query(
+      `INSERT INTO valuation_recompute_requests (account_id, user_id, from_date, requested_at)
+       SELECT DISTINCT account_id, user_id, $2::date, clock_timestamp() FROM transactions WHERE symbol = $1 AND type IN ('BUY', 'SELL')
+       ON CONFLICT (account_id) DO UPDATE SET from_date = LEAST(valuation_recompute_requests.from_date, EXCLUDED.from_date), requested_at = EXCLUDED.requested_at`,
+      [symbol, fromDate],
+    );
+  }
+
   /** Asks for every one of the user's accounts to be re-valued from a date */
   async requestRecompute(userId: string, accountIds: readonly string[], fromDate: string): Promise<void> {
     for (const accountId of accountIds) {

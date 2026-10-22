@@ -16,7 +16,7 @@ function dashboardFixture({ display = 'AUD', converted = true }: { display?: str
     displayCurrency: display,
     priceProvider: 'mock',
     fx: converted
-      ? { displayCurrency: display, complete: true, rates: [{ currency: 'USD', rate: '1.5', source: 'market', provider: 'mock', asOf: '2026-10-22T00:00:00.000Z', isMock: true }], missing: [] }
+      ? { displayCurrency: display, complete: true, rates: [{ currency: 'USD', rate: '1.5', source: 'market', provider: 'mock', asOf: '2026-10-22T00:00:00.000Z', isMock: true, isStale: false }], missing: [] }
       : { displayCurrency: display, complete: false, rates: [], missing: [{ currency: 'USD', reason: 'No USD→AUD exchange rate from provider yahoo' }] },
     valuation: { status: converted ? 'COMPLETE' : 'PARTIAL', usesMockPrices: true, holdings: 2, marketPriced: 0, stalePriced: 0, mockPriced: 2, costFallback: 0, oldestPriceAsOf: null, stalePriceDays: 5 },
     total: totals(c, '1000', [{ currency: 'AUD', total: '700' }, { currency: 'USD', total: '200' }]),
@@ -47,7 +47,7 @@ function dashboardFixture({ display = 'AUD', converted = true }: { display?: str
           percentOfShares: pct('75'),
           percentOfTotal: pct('22.5'),
           priceStatus: 'MOCK',
-          price: { price: '12.5', asOf: '2026-10-22T00:00:00.000Z', source: 'mock', isMock: true },
+          price: { price: '12.5', asOf: '2026-10-22T00:00:00.000Z', source: 'mock', isMock: true, isStale: false },
           positions: [
             { accountId: 'stake', accountPath: ['Stake'], quantity: '10', value: '125', basis: 'market' },
             { accountId: 'ibkr', accountPath: ['IBKR'], quantity: '2', value: '25', basis: 'market' },
@@ -119,7 +119,8 @@ describe('dashboard', () => {
     expect(screen.getByText(/Not converted to AUD/)).toBeInTheDocument();
     expect(screen.getByText('Partial valuation')).toBeInTheDocument();
     expect(screen.queryByRole('img', { name: /Asset classes/ })).not.toBeInTheDocument();
-    expect(screen.getByText(/Needs an exchange rate for every currency to chart/)).toBeInTheDocument();
+    // The history chart does not depend on today's rates: it converts each day at that day's rate
+    expect(client.valuations.getValuationHistory).toHaveBeenCalledWith(expect.objectContaining({ baseCurrency: 'AUD' }));
 
     await user.click(screen.getByRole('button', { name: 'Use these rates' }));
     expect(screen.getByText('Enter a positive rate for each currency, e.g. 1.52.')).toBeInTheDocument();
@@ -150,6 +151,42 @@ describe('dashboard', () => {
     expect(within(table).getByText('Crypto')).toBeInTheDocument();
     expect(within(table).getByText('Uncategorized')).toBeInTheDocument();
     expect(within(table).getAllByText('Nothing assigned').length).toBe(3);
+  });
+
+  it('charts share history at each day\'s historical exchange rate, never today\'s, and says which days could not be converted', async () => {
+    const client = clientWith(dashboardFixture());
+    const day = (date: string, value: string | null, extra: Partial<{ complete: boolean; pendingRecompute: boolean }> = {}) => ({
+      date,
+      complete: true,
+      includesMockPrices: false,
+      pendingRecompute: false,
+      priceProvider: 'yahoo',
+      computedAt: `${date}T07:00:00.000Z`,
+      totals: {
+        byCurrency: [{ currency: 'USD', marketValue: '100', costBase: '90', holdings: 1, unvaluedHoldings: 0, provisionalHoldings: 0 }],
+        converted: value
+          ? { baseCurrency: 'AUD', marketValue: value, costBase: '135', rates: [{ currency: 'USD', rate: '1.5', kind: 'HISTORICAL' as const, tradingDate: date, source: 'yahoo', isMock: false }] }
+          : null,
+        conversionUnavailable: value ? [] : [{ currency: 'USD', reason: 'No USD→AUD close within 7 days' }],
+      },
+      ...extra,
+    });
+    client.valuations.getValuationHistory.mockResolvedValue({
+      fromDate: '2026-10-19',
+      toDate: '2026-10-21',
+      accountId: null,
+      includeSubaccounts: true,
+      symbol: null,
+      fx: { baseCurrency: 'AUD', policy: 'HISTORICAL', rates: null, description: 'Historical' },
+      days: [day('2026-10-19', '150'), day('2026-10-20', null), day('2026-10-21', '160', { pendingRecompute: true })],
+      notes: [],
+    });
+    renderApp('/dashboard', { client });
+    expect(await screen.findByText(/converted at that day's closing exchange rate/)).toBeInTheDocument();
+    expect(client.valuations.getValuationHistory).toHaveBeenCalledWith(expect.objectContaining({ baseCurrency: 'AUD' }));
+    expect(client.valuations.getValuationHistory.mock.calls[0][0]).not.toHaveProperty('fxRates');
+    expect(screen.getByText(/1 day\(s\) are left out: no exchange rate for that day/)).toBeInTheDocument();
+    expect(screen.getByText(/1 day\(s\) are being recalculated/)).toBeInTheDocument();
   });
 
   it('offers to create an account when there is nothing to show', async () => {
