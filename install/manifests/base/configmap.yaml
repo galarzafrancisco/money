@@ -12,10 +12,12 @@ data:
   # Authorization server of Taico's registered `money` MCP server entry,
   # advertised in protected-resource metadata so MCP clients can sign in.
   TAICO_AUTHORIZATION_SERVERS: https://taico.app/mcp/money/0.0.0
-  # TEMPORARY, NON-DURABLE: there is no PostgreSQL for Money yet. Every
-  # restart, redeploy, eviction or crash starts from an EMPTY database and
-  # signs everyone out. Not fit for real financial records. Replace with
-  # DATABASE_URL (from a Secret) once persistent storage exists.
-  DATABASE_MODE: memory
+  # Durable PostgreSQL: the dedicated money-postgres instance on the Spark host,
+  # provisioned by spark-ops (bootstrap/money-postgres.sh). DATABASE_URL comes
+  # from the money-database Secret (see deployment.yaml), never from here.
+  # Explicit, so a missing URL fails startup instead of picking another mode.
+  DATABASE_MODE: postgres
+  # Host-local connection without TLS, as provisioned by spark-ops.
+  DATABASE_SSL: "false"
   # Labelled mock prices. "yahoo" is the unofficial keyless opt-in.
   MARKET_PRICE_PROVIDER: mock

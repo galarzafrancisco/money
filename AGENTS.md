@@ -48,9 +48,10 @@ Builds are orchestrated by **Nx** over npm workspaces. The order is:
 `@money/client` (generated from the spec) → `@money/web`. After `npm run build`,
 the backend serves the web app at `/`. Without `DATABASE_URL`,
 the backend uses embedded PGlite in `apps/backend/.data/pglite`. If port 4180
-is in use, set `PORT`. Production needs `DATABASE_URL`, or an explicit
+is in use, set `PORT`. Production needs `DATABASE_URL` (deployed: PostgreSQL,
+URL from the spark-ops Secret `money-database`), or an explicit
 `DATABASE_MODE=memory` (temporary and non-durable: data is lost on every
-restart). See [docs/deployment.md](docs/deployment.md).
+restart, never deployed). See [docs/deployment.md](docs/deployment.md).
 
 ### After making changes
 

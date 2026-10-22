@@ -22,6 +22,11 @@ export type TestApp = {
   /** Signs an access token the way Taico would */
   token: (options?: TokenOptions) => Promise<string>;
   close: () => Promise<void>;
+  /**
+   * Stops the app and boots a new one on the same database and signing keys,
+   * as a pod restart or redeploy would. `app` and `http` are replaced in place.
+   */
+  restart: () => Promise<void>;
 };
 
 export type TokenOptions = {
@@ -79,6 +84,29 @@ async function startPostgresDatabase(adminUrl: string): Promise<{ url: string; s
   };
 }
 
+/**
+ * The PGlite socket server serves one connection at a time and releases a
+ * closed one asynchronously, so a connection opened right after the app
+ * closes can be dropped. Wait until a fresh client gets an answer.
+ */
+async function waitForDatabase(url: string): Promise<void> {
+  const { Client } = await import('pg');
+  for (let attempt = 1; ; attempt++) {
+    const client = new Client({ connectionString: url });
+    client.on('error', () => undefined);
+    try {
+      await client.connect();
+      await client.query('SELECT 1');
+      await client.end();
+      return;
+    } catch (error) {
+      await client.end().catch(() => undefined);
+      if (attempt >= 50) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+}
+
 /** True when tests run against a real Postgres server with a connection pool */
 export const usingRealPostgres = Boolean(process.env.TEST_POSTGRES_URL);
 
@@ -114,12 +142,16 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
   } as NodeJS.ProcessEnv);
   const prices = new MockPriceProvider();
 
-  const moduleRef = await Test.createTestingModule({
-    imports: [AppModule.forRoot({ config, jwks: staticJwks([jwk]), priceProvider: prices, webAuthFetch: options.webAuthFetch })],
-  }).compile();
-  const app = moduleRef.createNestApplication({ logger: false });
-  options.configure?.(app);
-  await app.init();
+  const boot = async (): Promise<INestApplication> => {
+    const moduleRef = await Test.createTestingModule({
+      imports: [AppModule.forRoot({ config, jwks: staticJwks([jwk]), priceProvider: prices, webAuthFetch: options.webAuthFetch })],
+    }).compile();
+    const app = moduleRef.createNestApplication({ logger: false });
+    options.configure?.(app);
+    await app.init();
+    return app;
+  };
+  const app = await boot();
 
   const sign = async (key: CryptoKey, options: TokenOptions) =>
     new SignJWT({ client_id: 'test-client', scope: '', ...options.claims })
@@ -132,17 +164,24 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
       .setExpirationTime(Math.floor(Date.now() / 1000) + (options.expiresInSeconds ?? 600))
       .sign(key);
 
-  return {
+  const test: TestApp = {
     app,
     http: request(app.getHttpServer()),
     config,
     prices,
     token: (options = {}) => sign(options.foreignKey ? foreign.privateKey : privateKey, options),
     close: async () => {
-      await app.close();
+      await test.app.close();
       await database.stop();
     },
+    restart: async () => {
+      await test.app.close();
+      await waitForDatabase(database.url);
+      test.app = await boot();
+      test.http = request(test.app.getHttpServer());
+    },
   };
+  return test;
 }
 
 /** Calls an MCP tool over the Streamable HTTP endpoint and returns the parsed result */
