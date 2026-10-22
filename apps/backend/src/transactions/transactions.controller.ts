@@ -4,19 +4,23 @@ import { AuthenticatedUser } from '../auth/user.guard';
 import { ApiRoute } from '../openapi/api-route.decorator';
 import { apiSchema } from '../openapi/api-schemas';
 import type { CurrentUser } from '../users/users.service';
-import { deleteTransactionResultSchema, transactionListSchema, transactionSchema } from './transactions.responses';
+import { UnifiedAccountsService } from '../accounts/unified-accounts.service';
+import { deleteTransactionResultSchema, transactionSchema, unifiedTransactionListSchema } from './transactions.responses';
 import { listTransactionsSchema, recordTransactionSchema, updateTransactionSchema } from './transactions.schemas';
 import { TransactionsService } from './transactions.service';
 
 @Controller('api')
 @Protected()
 export class TransactionsController {
-  constructor(private readonly transactions: TransactionsService) {}
+  constructor(
+    private readonly transactions: TransactionsService,
+    private readonly allAccounts: UnifiedAccountsService,
+  ) {}
 
   @Get('accounts/:accountId/transactions')
-  @ApiRoute({ tag: 'transactions', operationId: 'listTransactions', summary: "List an account's transactions in ledger order", query: listTransactionsSchema, response: transactionListSchema })
+  @ApiRoute({ tag: 'transactions', operationId: 'listTransactions', summary: "List an account's transactions in ledger order (manual or imported from Up)", query: listTransactionsSchema, response: unifiedTransactionListSchema })
   list(@AuthenticatedUser() user: CurrentUser, @Param('accountId') accountId: string, @Query() query: Record<string, string>) {
-    return this.transactions.list(user, accountId, query);
+    return this.allAccounts.listTransactions(user, accountId, query);
   }
 
   /** Body: { type: DEPOSIT | WITHDRAWAL | FX_CONVERSION | BUY | SELL | DIVIDEND, date, ...fields for that type } */

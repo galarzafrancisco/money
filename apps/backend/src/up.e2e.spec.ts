@@ -348,7 +348,16 @@ describe('Up! read-only import (mock provider)', () => {
       const token = upToken();
       const { accountIds } = up.addCustomer(token);
       await connect(user, token);
-      expect((await as(user).get('/api/accounts').expect(200)).body).toEqual([]);
+      // Imported accounts are listed like any account, but nothing manual exists yet
+      const listed = (await as(user).get('/api/accounts').expect(200)).body as { source: string }[];
+      expect(listed.length).toBe(3);
+      expect(listed.every((a) => a.source === 'up')).toBe(true);
+      // Hidden Up accounts and their transactions are reachable through the generic REST reads
+      const hiddenOne = listed.find((a: any) => !a.visible) as any;
+      expect((await as(user).get(`/api/accounts/${hiddenOne.id}`).expect(200)).body).toMatchObject({ id: hiddenOne.id, source: 'up', visible: false });
+      const restTx = (await as(user).get(`/api/accounts/${hiddenOne.id}/transactions`).expect(200)).body as any[];
+      expect(restTx.length).toBeGreaterThan(0);
+      expect(restTx.every((x) => x.source === 'up' && ['DEPOSIT', 'WITHDRAWAL'].includes(x.type))).toBe(true);
 
       const manual = (await as(user).post('/api/accounts', { name: 'My bank' }).expect(201)).body;
       const dep = (await as(user).post(`/api/accounts/${manual.id}/transactions`, { type: 'DEPOSIT', date: '2026-02-01', currency: 'AUD', amount: '10.00' }).expect(201)).body;

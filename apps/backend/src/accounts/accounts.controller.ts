@@ -5,7 +5,8 @@ import { AuthenticatedUser } from '../auth/user.guard';
 import { ApiRoute } from '../openapi/api-route.decorator';
 import { apiSchema } from '../openapi/api-schemas';
 import type { CurrentUser } from '../users/users.service';
-import { accountListSchema, accountSchema, deleteAccountResultSchema } from './accounts.responses';
+import { UnifiedAccountsService, listUnifiedAccountsShape } from './unified-accounts.service';
+import { accountSchema, deleteAccountResultSchema, unifiedAccountListSchema, unifiedAccountSchema } from './accounts.responses';
 import { createAccountSchema, updateAccountSchema } from './accounts.schemas';
 import { AccountsService } from './accounts.service';
 
@@ -16,12 +17,15 @@ const deleteAccountQuery = z.object({
 @Controller('api/accounts')
 @Protected()
 export class AccountsController {
-  constructor(private readonly accounts: AccountsService) {}
+  constructor(
+    private readonly accounts: AccountsService,
+    private readonly allAccounts: UnifiedAccountsService,
+  ) {}
 
   @Get()
-  @ApiRoute({ tag: 'accounts', operationId: 'listAccounts', summary: 'List your accounts, including subaccounts', response: accountListSchema })
-  list(@AuthenticatedUser() user: CurrentUser) {
-    return this.accounts.list(user);
+  @ApiRoute({ tag: 'accounts', operationId: 'listAccounts', summary: 'List your accounts, including subaccounts and accounts imported from Up (hidden ones too; see source and visible)', query: z.object(listUnifiedAccountsShape), response: unifiedAccountListSchema })
+  list(@AuthenticatedUser() user: CurrentUser, @Query() query: Record<string, string>) {
+    return this.allAccounts.list(user, query);
   }
 
   @Post()
@@ -31,9 +35,9 @@ export class AccountsController {
   }
 
   @Get(':accountId')
-  @ApiRoute({ tag: 'accounts', operationId: 'getAccount', summary: 'Get one account', response: accountSchema })
+  @ApiRoute({ tag: 'accounts', operationId: 'getAccount', summary: 'Get one account, manual or imported from Up', response: unifiedAccountSchema })
   get(@AuthenticatedUser() user: CurrentUser, @Param('accountId') accountId: string) {
-    return this.accounts.get(user, accountId);
+    return this.allAccounts.get(user, accountId);
   }
 
   @Patch(':accountId')
