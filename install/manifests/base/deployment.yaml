@@ -47,6 +47,16 @@ spec:
                 secretKeyRef:
                   name: money-database
                   key: DATABASE_URL
+            # UP_ENCRYPTION_KEY (32 random bytes, base64): encrypts users' Up
+            # personal access tokens and webhook secrets at rest. Provisioned
+            # out of band, never committed. Optional so the pod starts without
+            # it: the read-only Up import then answers 503 until it exists.
+            - name: UP_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: money-up
+                  key: UP_ENCRYPTION_KEY
+                  optional: true
           envFrom:
             - configMapRef:
                 name: money-config

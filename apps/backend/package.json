@@ -31,7 +31,8 @@
     "jose": "^6.2.13",
     "supertest": "^7.3.1",
     "ts-jest": "^29.4.15",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "up-bank-mock": "*"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.10",

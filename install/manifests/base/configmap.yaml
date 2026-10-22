@@ -23,3 +23,8 @@ data:
   # personal tracking only). Read store-first and throttled; see
   # apps/backend/docs/market-prices.md. "mock" switches back to labelled made-up prices.
   MARKET_PRICE_PROVIDER: yahoo
+  # Read-only Up import (apps/backend/docs/up-integration.md). Up's real API and
+  # the single global webhook callback ($PUBLIC_BASE_URL/api/v1/webhooks/up,
+  # registered with Up on connect). UP_ENCRYPTION_KEY comes from the money-up Secret.
+  UP_API_BASE_URL: https://api.up.com.au/api/v1
+  UP_REGISTER_WEBHOOK: "true"

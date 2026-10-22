@@ -13,7 +13,7 @@ async function bootstrap(): Promise<void> {
   const inMemory = loaded.database.driver === 'memory';
   const running = await startDatabase(loaded.database);
   const config = { ...loaded, database: running.database };
-  const app = await NestFactory.create<NestExpressApplication>(AppModule.forRoot({ config }));
+  const app = await NestFactory.create<NestExpressApplication>(AppModule.forRoot({ config }), { rawBody: true });
   app.enableShutdownHooks();
   const webDir = webDistDir();
   const servingWeb = serveWebApp(app, webDir);
@@ -33,6 +33,12 @@ async function bootstrap(): Promise<void> {
       : 'Browser sign-in: not configured (set TAICO_WEB_CLIENT_ID, see docs/web-auth.md)',
   );
   if (web.encryptionKeyEphemeral) logger.warn('SESSION_ENCRYPTION_KEY unset: using a per-process key, browser sessions end on restart');
+  logger.log(
+    config.up.encryptionKey
+      ? `Up import: enabled (API ${config.up.apiBaseUrl}, webhook ${config.up.registerWebhook ? config.up.webhookUrl : 'registration off'})`
+      : 'Up import: disabled (set UP_ENCRYPTION_KEY, see docs/up-integration.md)',
+  );
+  if (config.up.encryptionKeyEphemeral) logger.warn('UP_ENCRYPTION_KEY unset: using a per-process key, stored Up tokens stop working on restart');
   logger.log(`Market prices: ${config.marketPrices.provider}${config.marketPrices.provider === 'mock' ? ' (MOCK prices, not real)' : ''}`);
 }
 

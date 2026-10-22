@@ -29,12 +29,14 @@ import {
 import { TransactionsService } from '../transactions/transactions.service';
 import { createTransferShape, listTransfersShape, updateTransferShape } from '../transfers/transfers.schemas';
 import { TransfersService } from '../transfers/transfers.service';
+import { connectUpSchema, disconnectUpShape, listUpAccountsShape, listUpTransactionsShape, matchUpTransactionSchema, setUpVisibilitySchema, updateUpAccountShape } from '../up/up.schemas';
+import { UpService } from '../up/up.service';
 import type { CurrentUser } from '../users/users.service';
 import { recomputeSchema, valuationAsOfSchema, valuationHistorySchema } from '../valuations/valuations.schemas';
 import { ValuationsService } from '../valuations/valuations.service';
 
 const PERSONAL_TRACKING =
-  'Money only records activity that happened elsewhere and updates its own tracking balances. It never moves money, contacts a bank or broker, or places trades.';
+  'Money only records activity that happened elsewhere and updates its own tracking balances. It never moves money, makes payments, or places trades. Its only bank contact is the optional read-only Up import of your own accounts and transactions.';
 
 const accountId = z.string().describe('Account ID (from list_accounts)');
 const categoryId = z.string().describe('Category ID (from list_categories)');
@@ -60,6 +62,7 @@ export class MoneyMcpServerFactory {
     private readonly valuations: ValuationsService,
     private readonly lots: LotsService,
     private readonly dashboard: DashboardService,
+    private readonly up: UpService,
   ) {}
 
   build(user: CurrentUser): McpServer {
@@ -328,6 +331,45 @@ export class MoneyMcpServerFactory {
       recomputeSchema.shape,
       (args) => this.valuations.requestRecompute(user, args),
     );
+
+    // ---- Up! import: read-only bank data, kept apart from the manual ledger ----
+    const upAccountId = z.string().describe('Imported Up account ID (from list_up_accounts)');
+    const upTransactionId = z.string().describe('Imported Up transaction ID (from list_up_transactions)');
+    tool('get_up_status', 'Whether Up is connected, last sync, and how many imported Up accounts are shown or hidden. Up data is a read-only import of what Up reports; it never moves money.', read, {}, () => this.up.status(user));
+    tool(
+      'connect_up',
+      'Connect Up (a read-only import) with a personal access token, or reconnect with a new one. Imports every accessible account and its transactions. New accounts start hidden: choose with set_up_account_visibility. The token is stored encrypted and never returned.',
+      write,
+      connectUpSchema.shape,
+      (args) => this.up.connect(user, args),
+    );
+    tool('sync_up', 'Re-read Up accounts and recent transactions now', write, {}, () => this.up.syncNow(user));
+    tool(
+      'disconnect_up',
+      'Disconnect Up: erase the stored token and stop syncing. Imported data is kept unless purge is true. Revoke the token at Up as well.',
+      destructive,
+      disconnectUpShape,
+      (args) => this.up.disconnect(user, args),
+    );
+    tool('list_up_accounts', 'List imported Up accounts. Default: only the ones you chose to show. visibility "hidden" or "all" includes the rest; hidden accounts are still imported and tracked.', read, listUpAccountsShape, (args) => this.up.listAccounts(user, args));
+    tool(
+      'set_up_account_visibility',
+      'Choose which imported Up accounts are shown in the default views; every other one becomes hidden (still imported and tracked)',
+      write,
+      setUpVisibilitySchema.shape,
+      (args) => this.up.setVisibility(user, args),
+    );
+    tool('update_up_account', 'Show or hide one imported Up account, or map it to a Money account', write, { accountId: upAccountId, ...updateUpAccountShape }, ({ accountId, ...changes }) =>
+      this.up.updateAccount(user, accountId, changes),
+    );
+    tool('list_up_transactions', 'List imported Up transactions (read-only provenance records, separate from manual transactions). Visible accounts by default; pass accountId or visibility "all" for hidden ones.', read, listUpTransactionsShape, (args) =>
+      this.up.listTransactions(user, args),
+    );
+    tool('match_up_transaction', 'Mark an imported Up transaction as the same real-world event as a manual Money transaction so it is not counted twice', write, { upTransactionId, ...matchUpTransactionSchema.shape }, ({ upTransactionId, ...rest }) =>
+      this.up.match(user, upTransactionId, rest),
+    );
+    tool('unmatch_up_transaction', 'Remove the link between an imported Up transaction and a manual one', write, { upTransactionId }, ({ upTransactionId }) => this.up.unmatch(user, upTransactionId));
+    tool('list_up_sync_runs', 'The last 20 Up syncs (audit trail)', read, {}, () => this.up.runs(user));
 
     return server;
   }
