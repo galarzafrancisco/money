@@ -41,7 +41,11 @@ npm run dev         # run the backend in watch mode (http://localhost:4180)
 npm run dev:web     # Vite dev server for the web app (http://localhost:5173), proxying /api and /auth to 4180
 npm test            # every project's tests
 npm run typecheck   # every project
+npm run demo:record -- scripts/demos/<scenario>.mjs --out /tmp/x.mp4   # PR demo video, see docs/how-to/record-pr-video.md
 ```
+
+For UI changes, attach demo videos to the PR (`gh pr comment --attach`).
+**Never commit video files.**
 
 Builds are orchestrated by **Nx** over npm workspaces. The order is:
 backend (which also writes `apps/backend/openapi.json`) →

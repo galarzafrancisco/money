@@ -161,3 +161,9 @@ vite.config.ts.timestamp-*
 # Generated API client and OpenAPI spec (build outputs)
 apps/backend/openapi.json
 packages/client/src/generated/
+
+# Demo videos and browser-tool output: attach videos to PRs, never commit them
+*.mp4
+*.webm
+*.mov
+.playwright-mcp/
