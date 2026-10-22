@@ -20,9 +20,9 @@ export const holdingSchema = apiSchema(
     costBase: decimalOut(),
     averageUnitCost: decimalOut(),
     price: z
-      .object({ price: decimalOut(), currency: z.string(), asOf: z.string(), source: z.string(), isMock: z.boolean() })
+      .object({ price: decimalOut(), currency: z.string(), asOf: z.string(), source: z.string(), isMock: z.boolean(), isStale: z.boolean().describe('The provider failed; this is the last known price (see asOf)') })
       .nullable()
-      .describe('Latest price and its provenance; isMock prices are made up'),
+      .describe('Latest price and its provenance; isMock prices are made up, isStale prices are the last known ones'),
     priceError: z.string().nullable(),
     marketValue: decimalOut().nullable(),
     unrealizedGain: decimalOut().nullable(),
@@ -88,5 +88,15 @@ export const currentUserSchema = apiSchema(
 
 export const quoteSchema = apiSchema(
   'Quote',
-  z.object({ symbol: z.string(), price: decimalOut(), currency: z.string(), asOf: z.string(), source: z.string(), isMock: z.boolean() }),
+  z.object({
+    symbol: z.string(),
+    price: decimalOut(),
+    currency: z.string(),
+    asOf: z.string().describe('When the price is from (ISO 8601); a stale price can be days old'),
+    source: z.string().describe('Provider name, e.g. yahoo or mock'),
+    isMock: z.boolean().describe('Made-up development data; never rely on it'),
+    priceType: z.enum(['LAST', 'CLOSE']).describe('LAST: latest regular-market price, possibly intraday and delayed. CLOSE: the close of a finished session.'),
+    isStale: z.boolean().describe('The provider could not be reached; this is the last known price'),
+    staleReason: z.string().nullable(),
+  }),
 );

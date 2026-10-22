@@ -19,5 +19,7 @@ data:
   DATABASE_MODE: postgres
   # Host-local connection without TLS, as provisioned by spark-ops.
   DATABASE_SSL: "false"
-  # Labelled mock prices. "yahoo" is the unofficial keyless opt-in.
-  MARKET_PRICE_PROVIDER: mock
+  # Real prices from Yahoo Finance's unofficial, keyless chart endpoint (delayed;
+  # personal tracking only). Read store-first and throttled; see
+  # apps/backend/docs/market-prices.md. "mock" switches back to labelled made-up prices.
+  MARKET_PRICE_PROVIDER: yahoo

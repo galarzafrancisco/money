@@ -79,9 +79,10 @@ cookie session requires.
 | GET | `/api/reports/categories` | same | Totals per effective category (a partition of the total) |
 | GET | `/api/dashboard` | `?displayCurrency=AUD\|USD…&fxRates=USD:1.5,…` | Total assets in one currency by asset class, category, account and ticker ([dashboard.md](dashboard.md)) |
 | GET | `/api/valuations` | `?fromDate=&toDate=&accountId=&includeSubaccounts=&symbol=&include=totals\|holdings&baseCurrency=&fxRates=` | Daily closing-price valuations of holdings (see [valuations.md](valuations.md)) |
+| GET | `/api/valuations/as-of` | `?date=&accountId=&includeSubaccounts=&symbol=&baseCurrency=&fxRates=` | Holdings and value at the close of one date: the snapshot, or reconstructed on demand (`basis`) |
 | GET | `/api/valuations/status` | none | Materialised range, partial days, pending recompute, last job run |
-| POST | `/api/valuations/recompute` | `{ fromDate, accountId? }` | 202 `{ requested, fromDate, accounts }`; re-valued on the next job run |
-| GET | `/api/market-prices/:symbol` | none | `{ symbol, price, currency, asOf, source, isMock }` |
+| POST | `/api/valuations/recompute` | `{ fromDate, accountId?, refreshPrices? }` | 202 `{ requested, fromDate, accounts, refreshedSymbols }`; re-valued on the next job run |
+| GET | `/api/market-prices/:symbol` | none | `{ symbol, price, currency, asOf, source, isMock, priceType, isStale, staleReason }` (see [market-prices.md](market-prices.md)) |
 | GET | `/.well-known/oauth-protected-resource/{api,mcp}` | none (no auth) | RFC 9728 metadata |
 
 Transaction bodies, by `type` (all of them take `date` YYYY-MM-DD and an optional `description`):
@@ -129,7 +130,7 @@ none of them takes a user argument.
 | `set_holding_category` (`categoryId: null` clears), `list_holding_categories` | The holding-category routes |
 | `get_accounts_report`, `get_categories_report` | `GET /api/reports/accounts`, `/categories` (`fxRates` as an object) |
 | `get_dashboard` | `GET /api/dashboard` (`fxRates` as an object) |
-| `get_valuation_history`, `get_valuation_status`, `request_valuation_recompute` | The valuation routes (`fxRates` as an object) |
+| `get_valuation_history`, `get_valuation_as_of`, `get_valuation_status`, `request_valuation_recompute` | The valuation routes (`fxRates` as an object) |
 | `get_market_price` | `GET /api/market-prices/:symbol` |
 
 Results are JSON text content. Domain errors come back as `isError: true` with

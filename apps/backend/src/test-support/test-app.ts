@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import request from 'supertest';
 import { AppModule } from '../app.module';
 import { loadConfig, type AppConfig } from '../config/env.config';
+import type { MarketPriceProvider } from '../market-prices/market-price.port';
 import { MockPriceProvider } from '../market-prices/mock-price.provider';
 
 export const ISSUER = 'https://taico.test';
@@ -117,6 +118,8 @@ export type TestAppOptions = {
   webAuthFetch?: typeof fetch;
   /** Adjusts the app before init, as main.ts does (e.g. serving the web app) */
   configure?: (app: INestApplication) => void;
+  /** A real provider instead of the mock (opt-in live tests only); `prices` is then unused */
+  priceProvider?: MarketPriceProvider;
 };
 
 /** Boots the real app on its own database, trusting a key pair generated for the test */
@@ -144,7 +147,7 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
 
   const boot = async (): Promise<INestApplication> => {
     const moduleRef = await Test.createTestingModule({
-      imports: [AppModule.forRoot({ config, jwks: staticJwks([jwk]), priceProvider: prices, webAuthFetch: options.webAuthFetch })],
+      imports: [AppModule.forRoot({ config, jwks: staticJwks([jwk]), priceProvider: options.priceProvider ?? prices, webAuthFetch: options.webAuthFetch })],
     }).compile();
     const app = moduleRef.createNestApplication({ logger: false });
     options.configure?.(app);

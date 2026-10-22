@@ -45,25 +45,17 @@ export function useDashboard(settings: DashboardSettings) {
   });
 }
 
-/** Rates the dashboard used, as the fxRates string the valuation history accepts */
-export function ratesParam(dashboard: Dashboard): string | undefined {
-  if (!dashboard.fx.complete || dashboard.fx.rates.length === 0) return undefined;
-  return dashboard.fx.rates.map((r) => `${r.currency}:${r.rate}`).join(',');
-}
-
 /**
  * Daily value of share holdings (not cash, not total wealth) over the last
- * 90 days, converted at the dashboard's current rates (constant, not
- * historical FX). Only fetched when the conversion is complete.
+ * 90 days, each day converted at that day's historical exchange rate (the
+ * backend's HISTORICAL policy). Today's or manual rates are never applied to
+ * past days; a day without a rate has no converted total.
  */
 export function useShareHistory(dashboard: Dashboard | undefined) {
   const { run } = useApi();
-  const fxRates = dashboard ? ratesParam(dashboard) : undefined;
-  const enabled = Boolean(dashboard?.fx.complete);
   return useQuery({
-    queryKey: queryKeys.shareHistory(dashboard?.displayCurrency ?? '', fxRates ?? ''),
-    queryFn: ({ signal }) =>
-      run((c) => c.valuations.getValuationHistory({ include: 'totals', baseCurrency: dashboard!.displayCurrency, fxRates, signal })),
-    enabled,
+    queryKey: queryKeys.shareHistory(dashboard?.displayCurrency ?? ''),
+    queryFn: ({ signal }) => run((c) => c.valuations.getValuationHistory({ include: 'totals', baseCurrency: dashboard!.displayCurrency, signal })),
+    enabled: Boolean(dashboard),
   });
 }

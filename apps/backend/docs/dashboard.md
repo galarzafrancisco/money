@@ -94,8 +94,13 @@ was converted. Otherwise it is `PARTIAL`. Mock data is flagged separately by
 
 The web app's "Share holdings over time" chart reads the daily valuation
 history (`GET /api/valuations`, [valuations.md](valuations.md)). It converts
-with the dashboard's current rates and labels them as constant, not historical.
-It covers share holdings only, so it is not total wealth.
+each day at that day's historical FX close, never today's rate. It leaves out
+and counts any day without a rate, and notes days awaiting recomputation. It
+covers share holdings only, so it is not total wealth.
+
+A price served from the last known value because the provider is down has
+`isStale: true` and is rated `STALE`; an FX rate in that state has
+`isStale: true` and a warning. See [market-prices.md](market-prices.md).
 
 ## Isolation
 

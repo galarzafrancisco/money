@@ -1,7 +1,7 @@
 import type { Holding } from '@money/client';
 import { Amount, Badge, Stack, Text } from '../../ui';
 
-/** A price with where it came from; mock prices are always labelled (guidelines §6.5) */
+/** A price with where it came from; mock and stale prices are always labelled (guidelines §6.5) */
 export function PriceProvenance({ price, error }: { price: Holding['price']; error: string | null }) {
   if (!price) {
     return (
@@ -24,6 +24,13 @@ export function PriceProvenance({ price, error }: { price: Holding['price']; err
           </Text>
         )}
       </span>
+      {price.isStale && (
+        <span>
+          <Badge tone="warning" title="The price provider could not be reached; this is the last price Money has">
+            Last known price
+          </Badge>
+        </span>
+      )}
       {error && (
         <Text tone="warning" size="xs" as="span">
           {error}

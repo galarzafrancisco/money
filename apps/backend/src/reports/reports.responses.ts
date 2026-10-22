@@ -28,7 +28,7 @@ export const reportItemSchema = apiSchema(
     value: decimalOut(),
     costBase: decimalOut().nullable(),
     basis: z.enum(['cash', 'market', 'cost']),
-    price: z.object({ price: decimalOut(), asOf: z.string(), source: z.string(), isMock: z.boolean() }).nullable(),
+    price: z.object({ price: decimalOut(), asOf: z.string(), source: z.string(), isMock: z.boolean(), isStale: z.boolean().describe('The provider failed; this is the last known price (see asOf)') }).nullable(),
     category: categoryRef,
     categorySource: z.enum(['holding', 'account', 'ancestor', 'none']),
   }),

@@ -24,7 +24,7 @@ export type ValuationItem = {
   costBase?: MoneyDecimal;
   /** How value was worked out: cash balance, market price, or cost base */
   basis: 'cash' | 'market' | 'cost';
-  price?: { price: string; asOf: string; source: string; isMock: boolean } | null;
+  price?: { price: string; asOf: string; source: string; isMock: boolean; isStale: boolean } | null;
 };
 
 export type FxPolicy = { baseCurrency: string; rates: Readonly<Record<string, string>> };

@@ -132,23 +132,17 @@ export function DashboardOverview() {
 function ShareHistory({ dashboard }: { dashboard: Dashboard }) {
   const history = useShareHistory(dashboard);
   const title = 'Share holdings over time';
-  if (!dashboard.fx.complete) {
-    return (
-      <Card title={title}>
-        <Text size="sm" tone="muted">
-          Needs an exchange rate for every currency to chart in {dashboard.displayCurrency}.
-        </Text>
-      </Card>
-    );
-  }
   if (history.isPending) return <Card title={title}><Loading label="Loading history…" /></Card>;
   if (history.isError) return <Card title={title}><ApiErrorCallout error={history.error} title="History is unavailable right now" /></Card>;
   const days = history.data.days.filter((d) => d.totals.converted);
+  const unconverted = history.data.days.length - days.length;
   if (days.length < 2) {
     return (
       <Card title={title}>
         <Text size="sm" tone="muted">
-          Not enough daily valuations yet. They are worked out after each market close.
+          {unconverted > 0
+            ? `No exchange rate to ${dashboard.displayCurrency} for ${unconverted} day(s), so they cannot be charted.`
+            : 'Not enough daily valuations yet. They are worked out after each market close.'}
         </Text>
       </Card>
     );
@@ -156,6 +150,7 @@ function ShareHistory({ dashboard }: { dashboard: Dashboard }) {
   const first = days[0];
   const last = days[days.length - 1];
   const partial = days.filter((d) => !d.complete).length;
+  const pending = days.filter((d) => d.pendingRecompute).length;
   return (
     <Card title={title}>
       <Stack gap={2}>
@@ -173,9 +168,10 @@ function ShareHistory({ dashboard }: { dashboard: Dashboard }) {
         </Text>
         <Text size="xs" tone="muted">
           Listed share holdings in every account (including any held in super) at daily closing prices. Cash, including super balances recorded as cash, is
-          not included, so this is not your total wealth. Converted at today's rates for every day, not historical
-          exchange rates.
+          not included, so this is not your total wealth. Each day is converted at that day's closing exchange rate.
           {partial > 0 && ` ${partial} day(s) are partial: some holdings had no closing price.`}
+          {unconverted > 0 && ` ${unconverted} day(s) are left out: no exchange rate for that day.`}
+          {pending > 0 && ` ${pending} day(s) are being recalculated after a backdated change.`}
           {days.some((d) => d.includesMockPrices) && ' Includes mock prices.'}
         </Text>
       </Stack>

@@ -108,6 +108,11 @@ Holding rows have composite FKs to `accounts(id, user_id)` (cascade) and to
 their `valuation_days` row. A trigger on `transactions` records backdated
 BUY/SELL changes for recomputation. See [valuations.md](valuations.md).
 
+`market_price_closes`, `market_price_series` and `market_price_splits` are the
+shared, store-first price history: market data, not per user, keyed by
+`(symbol, source)`. Closes are stored as traded (`adjustment = 'AS_TRADED'`).
+See [market-prices.md](market-prices.md).
+
 ## Derived state: replayed, never stored
 
 Cash per currency, lots (parcels), holdings, cost bases, realized gains and

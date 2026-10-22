@@ -55,11 +55,13 @@ export type PriceStatus = 'MARKET' | 'STALE' | 'MOCK' | 'COST_FALLBACK';
 /**
  * How trustworthy one holding's value is. COST_FALLBACK: no usable price, so
  * valued at cost base. MOCK: made-up development price. STALE: a real price
- * older than STALE_PRICE_DAYS. MARKET: a recent real price.
+ * older than STALE_PRICE_DAYS, or the last known price served because the
+ * provider could not be reached (isStale). MARKET: a recent real price.
  */
 export function priceStatusOf(item: Pick<ValuationItem, 'basis' | 'price'>, now: Date): PriceStatus {
   if (item.basis !== 'market' || !item.price) return 'COST_FALLBACK';
   if (item.price.isMock) return 'MOCK';
+  if (item.price.isStale) return 'STALE';
   const ageMs = now.getTime() - Date.parse(item.price.asOf);
   if (!Number.isFinite(ageMs) || ageMs > STALE_PRICE_DAYS * 24 * 60 * 60 * 1000) return 'STALE';
   return 'MARKET';

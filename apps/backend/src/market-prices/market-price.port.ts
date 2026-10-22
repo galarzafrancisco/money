@@ -12,6 +12,11 @@ export type Quote = {
   /** Which provider produced it. "mock" prices are made up and must not be relied on. */
   source: string;
   isMock: boolean;
+  /**
+   * LAST: the provider's latest regular-market price (may be intraday and
+   * delayed). CLOSE: the official close of a finished session.
+   */
+  priceType?: 'LAST' | 'CLOSE';
 };
 
 /**
@@ -41,6 +46,9 @@ export type DailyClose = {
   closeTime: string | null;
 };
 
+/** A stock split: one share before became numerator/denominator shares from `date` (exchange trading date) */
+export type Split = { date: string; numerator: string; denominator: string };
+
 /**
  * Daily closes of one symbol. Only FINISHED sessions are included: a
  * provider must leave out a session that has not closed yet, so an intraday
@@ -54,6 +62,15 @@ export type DailyCloseSeries = {
   source: string;
   /** Made-up development data; never rely on it */
   isMock: boolean;
+  /**
+   * AS_TRADED: the closes are the prices the shares actually traded at on
+   * each date (not adjusted for later splits or dividends), so they can be
+   * multiplied by the ledger's historical quantities. Providers must return
+   * AS_TRADED closes; the Yahoo adapter reverses Yahoo's split adjustment.
+   */
+  adjustment: 'AS_TRADED';
+  /** Splits known in or after the requested range (ascending by date) */
+  splits: Split[];
   /** Ascending by tradingDate */
   closes: DailyClose[];
 };

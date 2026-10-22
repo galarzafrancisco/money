@@ -148,7 +148,7 @@ describe('dashboard', () => {
 
   it('looks up missing rates from the price provider, with provenance', async () => {
     const body = await dashboard('?displayCurrency=AUD');
-    expect(body.fx.rates).toEqual([{ currency: 'USD', rate: '1.538462', source: 'market', provider: 'mock', asOf: expect.any(String), isMock: true }]);
+    expect(body.fx.rates).toEqual([{ currency: 'USD', rate: '1.538462', source: 'market', provider: 'mock', asOf: expect.any(String), isMock: true, isStale: false }]);
     expect(body.fx.complete).toBe(true);
     expect(body.total.converted.baseCurrency).toBe('AUD');
     expect(body.warnings.join(' ')).toMatch(/exchange rates are mock/);
@@ -218,6 +218,8 @@ describe('dashboard', () => {
 
   it('migrates SUPERANNUATION accounts down to OTHER and back up', async () => {
     const ds = t.app.get(DataSource);
+    // The superannuation migration and the one after it
+    await ds.undoLastMigration();
     await ds.undoLastMigration();
     const [row] = await ds.query(`SELECT "type" FROM "accounts" WHERE "id" = $1`, [ids.super]);
     expect(row.type).toBe('OTHER');

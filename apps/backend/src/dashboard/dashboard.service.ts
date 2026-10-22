@@ -33,6 +33,8 @@ export type FxRateView = {
   provider: string | null;
   asOf: string | null;
   isMock: boolean;
+  /** The provider could not be reached; the last known rate */
+  isStale: boolean;
 };
 
 export type DashboardItemView = ItemView & { assetClass: AssetClass; priceStatus: PriceStatus | null };
@@ -100,7 +102,7 @@ export type DashboardView = {
       /** Denominator: total tracked assets (total) */
       percentOfTotal: string | null;
       priceStatus: PriceStatus;
-      price: { price: string; asOf: string; source: string; isMock: boolean } | null;
+      price: { price: string; asOf: string; source: string; isMock: boolean; isStale: boolean } | null;
       positions: { accountId: string; accountPath: string[]; quantity: string; value: string; basis: 'cash' | 'market' | 'cost' }[];
     }[];
   };
@@ -143,12 +145,12 @@ export class DashboardService {
       currencies.map(async (currency) => {
         const manual = options.fxRates?.[currency];
         if (manual !== undefined) {
-          rates.push({ currency, rate: manual, source: 'manual', provider: null, asOf: null, isMock: false });
+          rates.push({ currency, rate: manual, source: 'manual', provider: null, asOf: null, isMock: false, isStale: false });
           return;
         }
         const result = await this.prices.getFxRate(currency, display);
         if ('rate' in result) {
-          rates.push({ currency, rate: result.rate.rate, source: 'market', provider: result.rate.source, asOf: result.rate.asOf, isMock: result.rate.isMock });
+          rates.push({ currency, rate: result.rate.rate, source: 'market', provider: result.rate.source, asOf: result.rate.asOf, isMock: result.rate.isMock, isStale: result.rate.isStale });
         } else {
           missing.push({ currency, reason: result.error });
         }
@@ -237,6 +239,7 @@ export class DashboardService {
     const warnings = [...ctx.envelope.warnings];
     for (const m of missing) warnings.push(`No ${m.currency}→${display} rate (${m.reason}). Converted totals and percentages are left out; supply fxRates to set one.`);
     if (stale > 0) warnings.push(`${stale} holding(s) use a price older than ${STALE_PRICE_DAYS} days.`);
+    for (const r of rates.filter((r) => r.isStale)) warnings.push(`The ${r.currency}→${display} rate is the last known one, from ${r.asOf}: the provider could not be reached.`);
     if (rates.some((r) => r.isMock)) warnings.push('Some exchange rates are mock (made-up development data). Do not rely on the converted figures.');
 
     return {

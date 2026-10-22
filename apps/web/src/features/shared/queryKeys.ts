@@ -7,7 +7,7 @@ export const queryKeys = {
   account: (id: string) => ['account', id] as const,
   accountsReport: ['reports', 'accounts'] as const,
   dashboard: (settings: object) => ['reports', 'dashboard', settings] as const,
-  shareHistory: (currency: string, rates: string) => ['reports', 'share-history', currency, rates] as const,
+  shareHistory: (currency: string) => ['reports', 'share-history', currency] as const,
   portfolio: (id: string) => ['portfolio', id] as const,
   transactions: (accountId: string, filter?: object) => (filter ? (['transactions', accountId, filter] as const) : (['transactions', accountId] as const)),
   transaction: (id: string) => ['transaction', id] as const,

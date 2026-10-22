@@ -59,7 +59,7 @@ export function portfolio(a: Account, overrides: Partial<Portfolio> = {}): Portf
         quantity: '300',
         costBase: '27000',
         averageUnitCost: '90',
-        price: { price: '100', currency: 'AUD', asOf: now, source: 'mock', isMock: true },
+        price: { price: '100', currency: 'AUD', asOf: now, source: 'mock', isMock: true, isStale: false },
         priceError: null,
         marketValue: '30000',
         unrealizedGain: '3000',
