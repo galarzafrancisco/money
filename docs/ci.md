@@ -159,9 +159,22 @@ A full run takes about 2–3 minutes. Most of the time it used to take went to:
   was built only after the tests finished. Now there is one `test` job, and
   `image` runs alongside it.
 
-The `image` job reuses Docker layers from the GitHub Actions cache, so the
-dependency layers are rebuilt only when `package-lock.json` or a
-`package.json` changes.
+Caches, all in the GitHub Actions cache:
+
+| Cache | Used by | Key | Effect |
+|---|---|---|---|
+| `node_modules` (root and workspaces) | `test` saves, `manifests` restores | lockfile, every `package.json`, Node major | exact hit skips `npm ci` |
+| npm download cache (`setup-node`) | `test`, `manifests` | lockfile | a miss downloads nothing it has seen |
+| Nx (`.nx/cache`) | `test` | commit, falls back to the newest | unchanged projects aren't rebuilt |
+| Jest transform cache | `test` (both runs share it) | commit, falls back to the newest | ts-jest doesn't recompile unchanged files and ESM dependencies |
+| Docker layers (`type=gha,mode=max`) | `image` saves, `publish` reads | per layer | dependency layers rebuild only when a `package.json` or the lockfile changes; `publish` reuses all of `image` |
+
+The `node_modules` key must change whenever installed contents could. If you
+add a workspace or change the Node major, update the key in both jobs.
+
+The backend step runs under Actions' `bash -e`, so each `wait` is guarded
+(`wait "$pid" || status=$?`). Without that, a failing Postgres run would end
+the step before the PGlite run is collected or either log is printed.
 
 ## Assumptions and known gaps
 

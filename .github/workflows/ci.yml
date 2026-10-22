@@ -61,9 +61,22 @@ jobs:
           cache: 'npm'
           cache-dependency-path: package-lock.json
 
+      - name: Restore node_modules
+        # Exact-match only: a hit skips `npm ci` entirely. The key covers the
+        # lockfile, every workspace package.json and the Node major.
+        id: node-modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            apps/*/node_modules
+            packages/*/node_modules
+          key: node-modules-${{ runner.os }}-${{ runner.arch }}-node24-${{ hashFiles('package-lock.json', 'package.json', 'apps/*/package.json', 'packages/*/package.json') }}
+
       - name: Install dependencies
         # --no-audit: the audit request sometimes hangs until npm's 5-minute
         # fetch timeout (see docs/ci.md)
+        if: steps.node-modules.outputs.cache-hit != 'true'
         run: npm ci --no-audit --no-fund
 
       - name: Restore nx cache
@@ -73,6 +86,16 @@ jobs:
           key: nx-${{ runner.os }}-${{ github.sha }}
           restore-keys: |
             nx-${{ runner.os }}-
+
+      - name: Restore Jest transform cache
+        # ts-jest also transforms the ESM-only dependencies; reusing its cache
+        # saves most of the compile time of every test file
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/jest-cache
+          key: jest-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
+          restore-keys: |
+            jest-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Build
         run: npm run build
@@ -87,15 +110,18 @@ jobs:
         # Each test file boots its own app and database; two workers per run
         # keep memory bounded (see docs/ci.md). TEST_POSTGRES_URL is the admin
         # connection: each test file creates and drops its own database.
+        # Actions runs this with `bash -e`, so each `wait` is guarded: both
+        # runs finish and both logs print before the step fails.
         run: |
           set -uo pipefail
+          jest_cache="$RUNNER_TEMP/jest-cache"
           TEST_POSTGRES_URL=postgresql://money:money_ci@127.0.0.1:5432/postgres \
-            npm -w @money/backend test -- --maxWorkers=2 --ci > test-postgres.log 2>&1 &
+            npm -w @money/backend test -- --maxWorkers=2 --ci --cacheDirectory="$jest_cache" > test-postgres.log 2>&1 &
           postgres=$!
-          TEST_POSTGRES_URL='' npm -w @money/backend test -- --maxWorkers=2 --ci > test-pglite.log 2>&1 &
+          TEST_POSTGRES_URL='' npm -w @money/backend test -- --maxWorkers=2 --ci --cacheDirectory="$jest_cache" > test-pglite.log 2>&1 &
           pglite=$!
-          wait "$postgres"; postgres_status=$?
-          wait "$pglite"; pglite_status=$?
+          postgres_status=0; wait "$postgres" || postgres_status=$?
+          pglite_status=0; wait "$pglite" || pglite_status=$?
           echo "::group::Backend tests on Postgres (exit $postgres_status)"; cat test-postgres.log; echo "::endgroup::"
           echo "::group::Backend tests on PGlite (exit $pglite_status)"; cat test-pglite.log; echo "::endgroup::"
           [ "$postgres_status" = 0 ] || { echo "::error::Backend tests failed on Postgres"; tail -80 test-postgres.log; }
@@ -286,8 +312,21 @@ jobs:
           cache: 'npm'
           cache-dependency-path: package-lock.json
 
+      - name: Restore node_modules
+        # Restore only: reuses what `test` saved, never saves its own
+        # (--ignore-scripts) install under the shared key
+        id: node-modules
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            node_modules
+            apps/*/node_modules
+            packages/*/node_modules
+          key: node-modules-${{ runner.os }}-${{ runner.arch }}-node24-${{ hashFiles('package-lock.json', 'package.json', 'apps/*/package.json', 'packages/*/package.json') }}
+
       - name: Install dependencies
         # Only needs `yaml` for the security check; skip lifecycle scripts
+        if: steps.node-modules.outputs.cache-hit != 'true'
         run: npm ci --ignore-scripts --no-audit --no-fund
 
       - name: Render as the deploy job and spark-ops will
