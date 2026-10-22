@@ -5,6 +5,7 @@ import { isUuid, parseInput } from '../common/validation';
 import { APP_CONFIG, type AppConfig } from '../config/env.config';
 import { UnitOfWork } from '../database/unit-of-work';
 import { AccountsService } from '../accounts/accounts.service';
+import { CategoriesService } from '../categories/categories.service';
 import type { CurrentUser } from '../users/users.service';
 import { UpAuthRejectedError, UpUnavailableError, type UpApiClient } from './up-api.client';
 import { UpVault } from './up-vault';
@@ -55,6 +56,7 @@ export class UpService {
     private readonly vault: UpVault,
     private readonly uow: UnitOfWork,
     private readonly accounts: AccountsService,
+    private readonly categories: CategoriesService,
   ) {}
 
   async status(user: CurrentUser): Promise<UpStatusView> {
@@ -168,6 +170,10 @@ export class UpService {
     if (changes.linkedAccountId !== undefined) {
       if (changes.linkedAccountId === null) account.linkedAccountId = null;
       else account.linkedAccountId = (await this.accounts.require(user, changes.linkedAccountId)).id;
+    }
+    if (changes.categoryId !== undefined) {
+      if (changes.categoryId === null) account.categoryId = null;
+      else account.categoryId = (await this.categories.get(user, changes.categoryId)).id;
     }
     return accountView(await this.repo.saveAccount(account));
   }
@@ -325,6 +331,7 @@ function accountView(account: UpAccountEntity) {
     balance: fmt(dec(account.balance)),
     visible: account.visible,
     linkedAccountId: account.linkedAccountId,
+    categoryId: account.categoryId,
     source: 'up' as const,
     lastSyncedAt: iso(account.lastSyncedAt),
     removedAt: iso(account.removedAt),

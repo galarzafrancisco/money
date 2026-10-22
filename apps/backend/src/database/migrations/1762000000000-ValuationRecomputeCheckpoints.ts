@@ -11,8 +11,8 @@ import type { MigrationInterface, QueryRunner } from 'typeorm';
  *   and the API renew requested_at when a request is renewed, which makes an
  *   older checkpoint void without the triggers having to know about it.
  */
-export class ValuationRecomputeCheckpoints1761900000000 implements MigrationInterface {
-  name = 'ValuationRecomputeCheckpoints1761900000000';
+export class ValuationRecomputeCheckpoints1762000000000 implements MigrationInterface {
+  name = 'ValuationRecomputeCheckpoints1762000000000';
 
   async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`ALTER TABLE "valuation_recompute_requests" ADD COLUMN "recomputed_from" date`);

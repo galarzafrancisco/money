@@ -5,6 +5,7 @@ import { AccountSettings } from '../features/accounts/AccountSettings';
 import { AccountsPage } from '../features/accounts/AccountsPage';
 import { AccountSubaccounts } from '../features/accounts/AccountSubaccounts';
 import { NewAccountPage } from '../features/accounts/NewAccountPage';
+import { ConnectionsPage } from '../features/connections/ConnectionsPage';
 import { CategoriesPage } from '../features/categories/CategoriesPage';
 import { DashboardCategories } from '../features/dashboard/DashboardCategories';
 import { DashboardLayout } from '../features/dashboard/DashboardLayout';
@@ -40,6 +41,7 @@ export function AppRoutes() {
         <Route path="record" element={<RecordActivityPage />} />
       </Route>
       <Route path="/categories" element={<CategoriesPage />} />
+      <Route path="/connections" element={<ConnectionsPage />} />
       <Route path="*" element={<EmptyState title="Page not found" action={<ButtonLink to="/accounts">Go to accounts</ButtonLink>} />} />
     </Routes>
   );

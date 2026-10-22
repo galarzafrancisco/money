@@ -30,6 +30,7 @@ export const upAccountSchema = apiSchema(
     balance: decimalOut("The balance Up reported at the last sync (includes held amounts), in the account's currency"),
     visible: z.boolean().describe('false: imported and tracked but hidden from default views'),
     linkedAccountId: z.string().nullable(),
+    categoryId: z.string().nullable().describe('Your Money category for this account, if you set one'),
     source: z.literal('up').describe('Provenance: imported from Up, not recorded in Money'),
     lastSyncedAt: z.string().nullable(),
     removedAt: z.string().nullable().describe('Set when Up stopped listing the account; imported data is kept'),
