@@ -168,13 +168,20 @@ jobs:
 
       - name: Build image
         uses: docker/build-push-action@v6
+        env:
+          # The build summary and record upload add ~12 s and nothing CI reads
+          DOCKER_BUILD_SUMMARY: 'false'
+          DOCKER_BUILD_RECORD_UPLOAD: 'false'
         with:
           context: .
           platforms: linux/arm64
           load: true
           tags: money:ci
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # Only main writes layers (~15 s of export). Pull requests read
+          # main's cache, and cache a PR writes is visible to that PR alone
+          # (see docs/ci.md)
+          cache-to: ${{ github.event_name == 'pull_request' && '' || 'type=gha,mode=max' }}
 
       - name: Smoke test image (PostgreSQL, as deployed)
         # Mirrors install/manifests: DATABASE_MODE=postgres, DATABASE_SSL=false,
@@ -388,6 +395,9 @@ jobs:
         # Same commit and Dockerfile as the smoke-tested build in `image`, so
         # layers come from the shared GHA build cache
         uses: docker/build-push-action@v6
+        env:
+          DOCKER_BUILD_SUMMARY: 'false'
+          DOCKER_BUILD_RECORD_UPLOAD: 'false'
         with:
           context: .
           platforms: linux/arm64

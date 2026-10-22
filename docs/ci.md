@@ -167,7 +167,14 @@ Caches, all in the GitHub Actions cache:
 | npm download cache (`setup-node`) | `test`, `manifests` | lockfile | a miss downloads nothing it has seen |
 | Nx (`.nx/cache`) | `test` | commit, falls back to the newest | unchanged projects aren't rebuilt |
 | Jest transform cache | `test` (both runs share it) | commit, falls back to the newest | ts-jest doesn't recompile unchanged files and ESM dependencies |
-| Docker layers (`type=gha,mode=max`) | `image` saves, `publish` reads | per layer | dependency layers rebuild only when a `package.json` or the lockfile changes; `publish` reuses all of `image` |
+| Docker layers (`type=gha,mode=max`) | `image` on `main` saves; `image` on PRs and `publish` read | per layer | dependency layers rebuild only when a `package.json` or the lockfile differs from `main`; `publish` reuses all of `image` |
+
+Pull requests don't write Docker layers. GitHub scopes cache entries to the
+ref that wrote them: a PR reads its own entries and `main`'s, and `main` never
+reads a PR's. On PR #20, layers written by the PR still missed on the next
+push, and the export cost about 15 s a run. Reading `main`'s cache is enough,
+because most PRs don't change dependencies. Both Docker build steps also turn
+off the build summary and record upload, which took about 12 s.
 
 The `node_modules` key must change whenever installed contents could. If you
 add a workspace or change the Node major, update the key in both jobs.
