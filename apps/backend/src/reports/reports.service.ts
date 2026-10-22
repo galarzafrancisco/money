@@ -12,6 +12,8 @@ import { MarketPricesService, type QuoteResult } from '../market-prices/market-p
 import { toLedgerEntry } from '../transactions/transaction.mapper';
 import { TransactionEntity } from '../transactions/transaction.entity';
 import { TransactionsRepository } from '../transactions/transactions.repository';
+import type { UpAccountEntity } from '../up/up.entities';
+import { UpRepository } from '../up/up.repository';
 import type { CurrentUser } from '../users/users.service';
 import {
   assertRatesCover,
@@ -98,6 +100,7 @@ export class ReportsService {
     private readonly accounts: AccountsRepository,
     private readonly categories: CategoriesRepository,
     private readonly transactions: TransactionsRepository,
+    private readonly upRepo: UpRepository,
     private readonly prices: MarketPricesService,
   ) {}
 
@@ -151,12 +154,19 @@ export class ReportsService {
    * account in scope, so each is counted exactly once.
    */
   async valuationContext(user: CurrentUser, options: ReportOptions) {
-    const [accounts, categoryList, holdingRows, rows] = await Promise.all([
+    const [manualAccounts, upAccounts, categoryList, holdingRows, rows] = await Promise.all([
       this.accounts.list(user.id),
+      this.upRepo.listAccounts(user.id, null),
       this.categories.list(user.id),
       this.categories.listHoldingCategories(user.id),
       this.transactions.list(user.id, {}),
     ]);
+    // Imported Up accounts are top-level cash accounts whose balance is the
+    // one Up last reported. Hidden ones stay out of the default view but are
+    // always reachable by ID.
+    const upAsAccounts = upAccounts.filter((u) => options.rootAccountId !== undefined || options.visibility === 'all' || (options.visibility === 'visible') === u.visible).map(upToAccount);
+    const upBalances = new Map(upAccounts.map((u) => [u.id, u]));
+    const accounts = [...manualAccounts, ...upAsAccounts];
     const byId = new Map(accounts.map((a) => [a.id, a]));
 
     let rootId: string | null = null;
@@ -174,7 +184,11 @@ export class ReportsService {
       list.push(row);
       rowsByAccount.set(row.accountId, list);
     }
-    const states = inScope.map((account) => ({ account, state: replayLedger((rowsByAccount.get(account.id) ?? []).map(toLedgerEntry)) }));
+    const states = inScope.map((account) => {
+      const imported = upBalances.get(account.id);
+      if (imported) return { account, state: { cash: new Map([[imported.currency, dec(imported.balance)]]), positions: new Map<string, never>() } };
+      return { account, state: replayLedger((rowsByAccount.get(account.id) ?? []).map(toLedgerEntry)) };
+    });
 
     const warnings: string[] = [];
     const symbols = [...new Set(states.flatMap(({ state }) => [...state.positions.keys()]))];
@@ -273,4 +287,20 @@ export class ReportsService {
     };
     return { allAccounts: accounts, byId, items, fx, rootId, categoryList, holdingCategories, categoryRef, itemView, pathOf, envelope };
   }
+}
+
+/** An imported Up account as a top-level cash account, for the shared reporting path */
+function upToAccount(u: UpAccountEntity): AccountEntity {
+  return Object.assign(new AccountEntity(), {
+    id: u.id,
+    userId: u.userId,
+    parentAccountId: null,
+    categoryId: u.categoryId,
+    name: u.displayName,
+    type: 'CASH' as const,
+    reportingCurrency: u.currency,
+    description: null,
+    createdAt: u.upCreatedAt,
+    updatedAt: u.updatedAt,
+  });
 }

@@ -134,7 +134,7 @@ export class DashboardService {
   async dashboard(user: CurrentUser, input: DashboardOptionsInput = {}, now = new Date()): Promise<DashboardView> {
     const options = parseInput(dashboardOptionsSchema, input);
     const display = options.displayCurrency;
-    const ctx = await this.reports.valuationContext(user, { valuation: 'market' });
+    const ctx = await this.reports.valuationContext(user, { valuation: 'market', visibility: 'visible' });
     const { items } = ctx;
 
     // ── FX: manual rates first, then the provider; any gap disables conversion

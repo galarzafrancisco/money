@@ -454,6 +454,46 @@ describe('Up! read-only import (mock provider)', () => {
     });
   });
 
+  describe('reports include imported accounts', () => {
+    it('counts imported balances once, honours visibility, resolves rootAccountId and reconciles with list_accounts', async () => {
+      const user = await t.token({ subject: 'up-reports' });
+      const token = upToken();
+      up.addCustomer(token);
+      await connect(user, token);
+      const manual = (await as(user).post('/api/accounts', { name: 'Manual cash' }).expect(201)).body;
+      await as(user).post(`/api/accounts/${manual.id}/transactions`, { type: 'DEPOSIT', date: '2026-01-01', currency: 'AUD', amount: '100' }).expect(201);
+      const listed = (await as(user).get('/api/accounts').expect(200)).body as any[];
+      const imported = listed.filter((a) => a.source === 'up');
+      const [shown, ...others] = imported;
+      await as(user).put('/api/up/accounts/visibility', { visibleAccountIds: [shown.id] }).expect(200);
+      const aud = (totals: any) => Number(totals.byCurrency.find((c: any) => c.currency === 'AUD')?.total ?? 0);
+      const sum = (accts: any[]) => accts.reduce((n, a) => n + a.balances.filter((b: any) => b.currency === 'AUD').reduce((m: number, b: any) => m + Number(b.amount), 0), 0);
+
+      // Default view: manual + visible imported only, each exactly once
+      const def = (await as(user).get('/api/reports/accounts?valuation=cost').expect(200)).body;
+      expect(def.accounts.map((a: any) => a.id).sort()).toEqual([manual.id, shown.id].sort());
+      expect(aud(def.totals)).toBeCloseTo(100 + sum([shown]), 2);
+
+      // All: reconciles with list_accounts, and with the categories report
+      const all = (await as(user).get('/api/reports/accounts?valuation=cost&visibility=all').expect(200)).body;
+      expect(aud(all.totals)).toBeCloseTo(sum(listed), 2);
+      const cats = (await as(user).get('/api/reports/categories?valuation=cost&visibility=all').expect(200)).body;
+      expect(aud(cats.totals)).toBeCloseTo(sum(listed), 2);
+      expect(cats.categories.reduce((n: number, c: any) => n + aud(c.totals), 0)).toBeCloseTo(sum(listed), 2);
+
+      // A hidden imported account resolves by ID; manual-only and imported-only roots work
+      const hidden = (await as(user).get(`/api/reports/accounts?valuation=cost&rootAccountId=${others[0].id}`).expect(200)).body;
+      expect(hidden.accounts).toHaveLength(1);
+      expect(aud(hidden.totals)).toBeCloseTo(sum([others[0]]), 2);
+      const only = (await as(user).get(`/api/reports/accounts?valuation=cost&rootAccountId=${manual.id}`).expect(200)).body;
+      expect(aud(only.totals)).toBe(100);
+
+      // Another user cannot reach these
+      const other = await t.token({ subject: 'up-reports-other' });
+      await as(other).get(`/api/reports/accounts?rootAccountId=${others[0].id}`).expect(404);
+    });
+  });
+
   it('migrates the Up tables down and back up', async () => {
     const ds = t.app.get(DataSource);
     await undoMigrationsThrough(ds, 'UpIntegration1761800000000');

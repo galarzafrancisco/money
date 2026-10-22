@@ -81,7 +81,7 @@ describe('Account groups', () => {
     // Grouped + ungrouped = physical: Brokerage 1000 + group 1700 (the hidden 2Up account holds 0 and is not counted)
     expect(aud(v.totals)).toBe(sum(bal('Spending'), bal('Savings'), dec(1200))); // 2Up is hidden and not counted
     const report = (await as(tokenA).get('/api/reports/accounts').expect(200)).body;
-    expect(aud(report.totals)).toBe('1200'); // Money accounts only; Up is reported separately
+    expect(aud(report.totals)).toBe(sum(bal('Spending'), bal('Savings'), dec(1200))); // manual plus visible imported accounts, once each; hidden 2Up is left out
   });
 
   it('converts group totals with the caller\'s explicit rates and splits composition by kind of account', async () => {

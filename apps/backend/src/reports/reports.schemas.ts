@@ -55,7 +55,11 @@ export const reportOptionsSchema = z
     rootAccountId: z
       .string()
       .optional()
-      .describe('Limit the report to this account and its subaccounts. Omit for all your accounts.'),
+      .describe('Limit the report to this account and its subaccounts. Works for imported Up accounts too, hidden ones included. Omit for all your accounts.'),
+    visibility: z
+      .enum(['visible', 'hidden', 'all'])
+      .default('visible')
+      .describe('Which imported (Up) accounts to include: visible (default), hidden or all. Manual accounts are always included. Ignored when rootAccountId names an account.'),
   })
   .refine((value) => value.fxRates === undefined || value.baseCurrency !== undefined, {
     message: 'fxRates needs baseCurrency',
