@@ -2,7 +2,26 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 # Argo CD (spark-ops ApplicationSet) deploys k8s/money/overlays/main into the
-# `money` namespace. spark-ops hydration writes a shared env.env here; Money's
-# settings are not secret and are not in it, so this overlay doesn't read it.
+# `money` namespace. spark-ops hydration writes a shared env.env here; the only
+# value Money reads is SPARK_IP, the host that runs the money-postgres container.
+configMapGenerator:
+  - name: env
+    envs:
+      - env.env
+    options:
+      disableNameSuffixHash: true
+
 resources:
   - ../../base
+
+replacements:
+  - source:
+      kind: ConfigMap
+      name: env
+      fieldPath: data.SPARK_IP
+    targets:
+      - select:
+          kind: EndpointSlice
+          name: money-postgres-host
+        fieldPaths:
+          - endpoints.0.addresses.0

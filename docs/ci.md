@@ -73,9 +73,9 @@ filesystem, all capabilities dropped and a seccomp profile.
 [`scripts/check-manifest-database.mjs`](../scripts/check-manifest-database.mjs)
 checks that the Deployment runs `DATABASE_MODE=postgres` and takes
 `DATABASE_URL` only from the spark-ops Secret `money-database` (non-optional,
-no literal value, not in a ConfigMap), and that the manifests don't define
-any of the resources spark-ops owns: the Secret `money-database`, the Service
-`money-postgres` and the EndpointSlice `money-postgres-host`. A merge to `main` deploys right away, so a manifest
+no literal value, not in a ConfigMap), that the Service `money-postgres` and the EndpointSlice
+`money-postgres-host` are defined with the hydrated Spark IP, and that the
+manifests don't define the Secret `money-database`, which spark-ops provisions. A merge to `main` deploys right away, so a manifest
 that doesn't render must fail on the pull request. `deploy` needs this job.
 See [deployment.md](deployment.md).
 
@@ -135,8 +135,8 @@ The manifests live in `install/manifests` and are described in
 - `install/manifests/base/kustomization.yaml` exists and references the image
   `ghcr.io/galarzafrancisco/money` (in `images:` or in a resource), so that
   `kustomize edit set image` pins it;
-- `install/manifests/overlays/main/` exists, because spark-ops hydration writes `env.env` there
-  and fails if no `k8s/*/overlays/main` exists;
+- `install/manifests/overlays/main/` exists and reads `env.env`, because spark-ops hydration
+  writes it there and the overlay takes `SPARK_IP` from it for the database EndpointSlice;
 - the container listens on `4180` and serves `/health` for probes.
 
 Because spark-ops auto-merges, a merge to `main` that changes `install/manifests`

@@ -52,15 +52,15 @@ follow `spark-ops/k8s/address-australia`, the existing
 
 - **The hostname is set in the base, not hydrated.** spark-ops hydration writes
   one shared `env.env` (`DOMAIN`, `ISSUER_URL`, `SPARK_IP`, …) whose values are
-  Taico's. Money's settings aren't secret, so they live in `configmap.yaml`
-  and the overlay doesn't read `env.env`. It still has to exist, because
-  hydration needs `overlays/main/`.
-- **No volume, no Postgres Service, EndpointSlice or database Secret.**
-  spark-ops' `bootstrap/money-postgres.sh` owns `Secret/money-database`,
-  `Service/money-postgres` and `EndpointSlice/money-postgres-host` in namespace
-  `money`, and restores them on cluster bootstrap. Money only references them.
-  Declaring them here would make Argo CD manage, and possibly prune or
-  overwrite, infrastructure it doesn't own. CI rejects that.
+  Taico's. Money's settings aren't secret, so they live in `configmap.yaml`.
+  The overlay reads `env.env` only for `SPARK_IP`, which it writes into the
+  database EndpointSlice (same as Taico's `taico-postgres-host`).
+- **The database Service and EndpointSlice are in the manifests.**
+  `base/postgres-service.yaml` defines `Service/money-postgres` (5432) and
+  `EndpointSlice/money-postgres-host` (`SPARK_IP`:15434, the host container),
+  so Argo CD manages them like Taico's. No volume. `Secret/money-database` is
+  the exception: it holds the credentials, which spark-ops generates and keeps
+  on the host, so it is not in Git and CI rejects it here.
 - **The image serves the web app** at `/` from the same origin as `/api` and
   `/auth` (the Dockerfile copies `apps/web/dist`), so the cookie session works
   without CORS or a separate frontend deployment. CI's smoke test checks that
@@ -169,7 +169,7 @@ SQLite) in its
 |---|---|
 | Server | PostgreSQL 16 (16.15 at handover), Docker container `money-postgres` on the Spark host, `restart=always`, outside k3d |
 | Database / role | `money` / `money`. The role owns the database and runs the migrations; it isn't a superuser and can't create roles or databases |
-| From the pod | `money-postgres:5432` (`Service` + `EndpointSlice` → host `10.0.0.50:15434`) |
+| From the pod | `money-postgres:5432` (`Service` + `EndpointSlice` from `base/postgres-service.yaml` → host `SPARK_IP`:15434) |
 | Credentials | Secret `money-database`, key `DATABASE_URL`, injected with `secretKeyRef` (not optional) |
 | TLS | none, host-local trusted transport (`DATABASE_SSL=false`) |
 | Data on the host | `/home/fran/prod/storage/money/postgres` |
@@ -251,7 +251,7 @@ Secrets are created out of band in the cluster and never committed.
 | Secret (namespace `money`) | Keys | Status |
 |---|---|---|
 | `money-session` | `SESSION_ENCRYPTION_KEY`: 32 random bytes, base64 | **Provisioned.** Encrypts the Taico tokens of browser sessions at rest ([web-auth.md](../apps/backend/docs/web-auth.md)). Required: without it the pod stays in `CreateContainerConfigError`. Kept on the host like spark-ops' other secrets; back it up with the database. Rotating it ends all sessions; don't recreate it |
-| `money-database` | `DATABASE_URL`: `postgresql://money:<password>@money-postgres:5432/money` | **Provisioned by spark-ops** (`bootstrap/money-postgres.sh`), which owns it. Not defined in Money's manifests. See [Database](#database) |
+| `money-database` | `DATABASE_URL`: `postgresql://money:<password>@money-postgres:5432/money` | **Provisioned by spark-ops** (`bootstrap/money-postgres.sh`), which owns it. Not defined in Money's manifests (credentials). See [Database](#database) |
 
 GHCR needs no pull secret if the package is public. spark-ops has no
 `imagePullSecrets` anywhere.

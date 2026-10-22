@@ -10,10 +10,10 @@
 // - take DATABASE_URL only from the spark-ops Secret money-database, key
 //   DATABASE_URL, and not mark that reference optional,
 // - not set DATABASE_URL anywhere else (literal env value, ConfigMap).
-// The manifests must not define the resources spark-ops owns
-// (bootstrap/money-postgres.sh): the Secret money-database, the Service
-// money-postgres and the EndpointSlice money-postgres-host. If Money's
-// manifests defined them, Argo would track and could prune them.
+// The manifests must define the Service money-postgres and the EndpointSlice
+// money-postgres-host that route the pod to the host database (port 15434, with
+// the host address filled in from SPARK_IP), and must not define the Secret
+// money-database, which spark-ops provisions because it holds the credentials.
 import { readFileSync } from 'node:fs';
 import { parseAllDocuments } from 'yaml';
 
@@ -35,17 +35,24 @@ const configMaps = new Map(docs.filter((d) => d.kind === 'ConfigMap').map((d) =>
 for (const [name, data] of configMaps) {
   check(!('DATABASE_URL' in data), `ConfigMap/${name} must not set DATABASE_URL (it comes from the money-database Secret)`);
 }
-const OPS_OWNED = [
-  ['Secret', 'money-database'],
-  ['Service', 'money-postgres'],
-  ['EndpointSlice', 'money-postgres-host'],
-];
-for (const [kind, name] of OPS_OWNED) {
-  check(
-    !docs.some((d) => d.kind === kind && d.metadata?.name === name),
-    `${kind}/${name} must not be defined here: spark-ops provisions it`,
-  );
-}
+check(
+  !docs.some((d) => d.kind === 'Secret' && d.metadata?.name === 'money-database'),
+  'Secret/money-database must not be defined here: spark-ops provisions it (it holds the credentials)',
+);
+const dbService = docs.find((d) => d.kind === 'Service' && d.metadata?.name === 'money-postgres');
+check(Boolean(dbService), 'Service/money-postgres not found');
+check(dbService?.spec.ports?.[0]?.port === 5432, 'Service/money-postgres must expose port 5432');
+const slice = docs.find((d) => d.kind === 'EndpointSlice' && d.metadata?.name === 'money-postgres-host');
+check(Boolean(slice), 'EndpointSlice/money-postgres-host not found');
+check(
+  slice?.metadata.labels?.['kubernetes.io/service-name'] === 'money-postgres',
+  'EndpointSlice/money-postgres-host must be labelled kubernetes.io/service-name: money-postgres',
+);
+const address = slice?.endpoints?.[0]?.addresses?.[0];
+check(
+  /^\d+\.\d+\.\d+\.\d+$/.test(address ?? ''),
+  `EndpointSlice/money-postgres-host address must be the hydrated Spark IP (got ${JSON.stringify(address)})`,
+);
 
 const deployment = docs.find((d) => d.kind === 'Deployment' && d.metadata.name === 'money');
 check(Boolean(deployment), 'Deployment/money not found');
