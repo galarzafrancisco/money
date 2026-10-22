@@ -82,3 +82,28 @@ function roundString(value: string, places: number): string {
   const rounded = ((abs + factor / 2n) / factor) * factor;
   return fromScaled(negative ? -rounded : rounded);
 }
+
+/**
+ * Compact display for large amounts, exact on the scaled integer:
+ * below 10,000 the full value with 2 decimals; from 10,000 up, thousands
+ * with no decimals (125,241.62 → 125K); from 1,000,000 up, millions with up
+ * to 2 decimals (1.23M); from 10,000,000 up, millions with no decimals.
+ */
+export function formatCompactDecimal(value: string): string {
+  const v = value.trim();
+  if (!isDecimal(v)) return value;
+  const scaled = toScaled(v);
+  const negative = scaled < 0n;
+  const abs = negative ? -scaled : scaled;
+  const unit = 10n ** BigInt(SCALE);
+  const whole = abs / unit;
+  const sign = negative ? '-' : '';
+  const divide = (divisor: bigint, places: number, suffix: string) => {
+    const text = fromScaled(abs / divisor);
+    return `${sign}${formatDecimal(text, { maxFraction: places })}${suffix}`;
+  };
+  if (whole >= 10_000_000n) return `${sign}${formatDecimal(roundString(fromScaled(abs / 1_000_000n), 0))}M`;
+  if (whole >= 1_000_000n) return divide(1_000_000n, 2, 'M');
+  if (whole >= 10_000n) return `${sign}${formatDecimal(roundString(fromScaled(abs / 1_000n), 0))}K`;
+  return formatDecimal(value, { minFraction: 2, maxFraction: 2 });
+}
