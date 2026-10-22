@@ -11,6 +11,7 @@ resources:
   - ./configmap.yaml
   - ./deployment.yaml
   - ./service.yaml
+  - ./postgres-service.yaml
   - ./certificate.yaml
   - ./listener-set.yaml
   - ./route.yaml
