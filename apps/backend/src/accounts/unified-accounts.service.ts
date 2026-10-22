@@ -91,8 +91,15 @@ export class UnifiedAccountsService {
     const parsed = parseInput(listTransactionsSchema, filter);
     // Up transactions are bank cash movements with no instrument, so a symbol filter can match nothing.
     if (parsed.symbol) return [];
-    const page = await this.up.listTransactions(user, { accountId, fromDate: parsed.fromDate, toDate: parsed.toDate, limit: 500 });
-    return page.items
+    // Page through every Up result so long histories are not truncated.
+    const items: Awaited<ReturnType<UpService['listTransactions']>>['items'] = [];
+    let offset: number | null = 0;
+    while (offset !== null) {
+      const page = await this.up.listTransactions(user, { accountId, fromDate: parsed.fromDate, toDate: parsed.toDate, limit: 500, offset });
+      items.push(...page.items);
+      offset = page.nextOffset;
+    }
+    return items
       .map((t) => {
         const type = dec(t.amount).isNegative() ? 'WITHDRAWAL' : 'DEPOSIT';
         return { ...t, type, date: t.createdAt.slice(0, 10), accountId: upAccount.id, amount: fmt(dec(t.amount).abs()), source: 'up' as const };

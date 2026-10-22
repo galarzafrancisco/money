@@ -428,6 +428,12 @@ describe('Up! read-only import (mock provider)', () => {
       expect(['DEPOSIT', 'WITHDRAWAL']).toContain(txs.data[0].type);
       // Up transactions have no instrument, so a symbol filter matches nothing
       expect((await callTool(t, mcpA, 'list_transactions', { accountId: listed.data[0].id, symbol: 'VAS' })).data).toEqual([]);
+      // Long histories are not truncated at one page
+      const target = listed.data[0];
+      for (let i = 0; i < 520; i++) up.addTransaction(token, { accountId: target.upId, description: `Bulk ${i}`, amountInBaseUnits: -1, emit: false });
+      expect((await callTool(t, mcpA, 'sync_up', {})).isError).toBe(false);
+      const full = await callTool(t, mcpA, 'list_transactions', { accountId: target.id });
+      expect(full.data.filter((x: any) => x.description?.startsWith('Bulk '))).toHaveLength(520);
       expect((await callTool(t, mcpA, 'get_up_status')).data.status).toBe('active');
       expect((await callTool(t, mcpA, 'disconnect_up', {})).data.disconnected).toBe(true);
     });
