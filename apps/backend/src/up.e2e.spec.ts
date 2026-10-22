@@ -412,6 +412,20 @@ describe('Up! read-only import (mock provider)', () => {
       const chosen = await callTool(t, mcpA, 'set_up_account_visibility', { visibleAccountIds: [listed.data[0].id] });
       expect(chosen.data.filter((a: any) => a.visible)).toHaveLength(1);
       expect((await callTool(t, mcpA, 'list_up_transactions', { accountId: listed.data[0].id, limit: 5 })).data.items.length).toBeGreaterThan(0);
+      // Up accounts are ordinary accounts in the generic tools, hidden ones included
+      const all = (await callTool(t, mcpA, 'list_accounts')).data.filter((a: any) => a.source === 'up');
+      expect(all).toHaveLength(3);
+      expect(all.some((a: any) => !a.visible)).toBe(true);
+      expect((await callTool(t, mcpA, 'list_accounts', { visibility: 'visible' })).data.filter((a: any) => a.source === 'up')).toHaveLength(1);
+      const hidden = all.find((a: any) => !a.visible);
+      const one = await callTool(t, mcpA, 'get_account', { accountId: hidden.id });
+      expect(one.data).toMatchObject({ id: hidden.id, source: 'up', visible: false });
+      expect(one.data.balances).toHaveLength(1);
+      const txs = await callTool(t, mcpA, 'list_transactions', { accountId: listed.data[0].id });
+      expect(txs.isError).toBe(false);
+      expect(txs.data.length).toBeGreaterThan(0);
+      expect(txs.data[0]).toMatchObject({ source: 'up', accountId: listed.data[0].id });
+      expect(['DEPOSIT', 'WITHDRAWAL']).toContain(txs.data[0].type);
       expect((await callTool(t, mcpA, 'get_up_status')).data.status).toBe('active');
       expect((await callTool(t, mcpA, 'disconnect_up', {})).data.disconnected).toBe(true);
     });

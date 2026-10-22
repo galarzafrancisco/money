@@ -126,7 +126,8 @@ none of them takes a user argument.
 | Tool | Does the same as |
 |---|---|
 | `whoami` | `GET /api/me` |
-| `list_accounts`, `get_account`, `create_account`, `update_account`, `delete_account` | The account routes |
+| `list_accounts`, `get_account`, `list_transactions` | Unified over manual and Up-imported accounts (`UnifiedAccountsService`): Up accounts appear as ordinary accounts with `source: "up"`, `visible` and cash `balances`, hidden ones included. REST `/api/accounts` is still manual-only. |
+| `create_account`, `update_account`, `delete_account` | The account routes (manual accounts only) |
 | `list_transactions`, `get_transaction` | The transaction reads |
 | `record_deposit`, `record_withdrawal`, `record_fx_conversion`, `record_buy`, `record_sell`, `record_dividend` | `POST …/transactions` with that `type` |
 | `update_transaction`, `delete_transaction` | `PATCH` / `DELETE /api/transactions/:id` |

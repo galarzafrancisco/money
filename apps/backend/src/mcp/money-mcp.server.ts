@@ -4,6 +4,7 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import { createAccountSchema, updateAccountSchema } from '../accounts/accounts.schemas';
 import { AccountsService } from '../accounts/accounts.service';
+import { UnifiedAccountsService, listUnifiedAccountsShape } from '../accounts/unified-accounts.service';
 import { createCategorySchema, holdingCategorySchema, updateCategorySchema } from '../categories/categories.schemas';
 import { createAccountGroupSchema, updateAccountGroupSchema } from '../account-groups/account-groups.schemas';
 import { AccountGroupsService } from '../account-groups/account-groups.service';
@@ -56,6 +57,7 @@ const transferId = z.string().describe('Transfer ID (from list_transfers)');
 export class MoneyMcpServerFactory {
   constructor(
     private readonly accounts: AccountsService,
+    private readonly allAccounts: UnifiedAccountsService,
     private readonly transactions: TransactionsService,
     private readonly portfolio: PortfolioService,
     private readonly prices: MarketPricesService,
@@ -96,8 +98,8 @@ export class MoneyMcpServerFactory {
 
     tool('whoami', 'The Money user the current access token maps to', read, {}, async () => user);
 
-    tool('list_accounts', 'List your manually recorded accounts and subaccounts (flat; parentAccountId links a subaccount to its parent). Does not include imported Up bank accounts: use list_up_accounts for those. get_accounts_report gives the tree with balances.', read, {}, () => this.accounts.list(user));
-    tool('get_account', 'Get one account', read, { accountId }, ({ accountId }) => this.accounts.get(user, accountId));
+    tool('list_accounts', 'List all your accounts and subaccounts, manual and Up-imported alike (flat; parentAccountId links a subaccount to its parent). Each has source ("manual" or "up"), visible and balances (cash per currency). Imported Up accounts are accounts like any other, including hidden ones (pass visibility to narrow). get_accounts_report gives the tree with holdings and valuations.', read, listUnifiedAccountsShape, (args) => this.allAccounts.list(user, args));
+    tool('get_account', 'Get one account (manual or imported from Up) with its cash balances', read, { accountId }, ({ accountId }) => this.allAccounts.get(user, accountId));
     tool(
       'create_account',
       'Create a named account (a tracking record, not a real bank or brokerage account). Give parentAccountId to make it a subaccount (bucket) of another account, e.g. "Term Deposit 1" under your bank account. Each subaccount has its own transactions.',
@@ -211,10 +213,10 @@ export class MoneyMcpServerFactory {
 
     tool(
       'list_transactions',
-      'List an account\'s transactions in ledger order (date, then order recorded)',
+      'List an account\'s transactions (manual: ledger order; Up-imported: newest first, with status HELD/SETTLED). Works for any account from list_accounts, hidden ones included.',
       read,
       { accountId, ...listTransactionsSchema.shape },
-      ({ accountId, ...filter }) => this.transactions.list(user, accountId, filter),
+      ({ accountId, ...filter }) => this.allAccounts.listTransactions(user, accountId, filter),
     );
     tool('get_transaction', 'Get one transaction', read, { transactionId }, ({ transactionId }) => this.transactions.get(user, transactionId));
 
