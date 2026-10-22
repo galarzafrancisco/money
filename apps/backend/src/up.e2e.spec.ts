@@ -138,6 +138,17 @@ describe('Up! read-only import (mock provider)', () => {
       expect((await accounts(tokenC)).find((a) => a.id === first.id).categoryId).toBeNull();
       await as(tokenC).patch(`/api/up/accounts/${first.id}`, { categoryId: null }).expect(200);
     });
+
+    it('rejects another user\'s category at the database level', async () => {
+      const token = upToken();
+      up.addCustomer(token);
+      await connect(tokenC, token);
+      const mine = (await as(tokenA).post('/api/categories', { name: 'DbOther' }).expect(201)).body;
+      const dataSource = t.app.get(DataSource, { strict: false });
+      const [row] = await dataSource.query('SELECT id FROM up_accounts WHERE user_id <> (SELECT user_id FROM categories WHERE id = $1) LIMIT 1', [mine.id]);
+      expect(row).toBeDefined();
+      await expect(dataSource.query('UPDATE up_accounts SET category_id = $1 WHERE id = $2', [mine.id, row.id])).rejects.toThrow();
+    });
   });
 
   describe('tokens', () => {
