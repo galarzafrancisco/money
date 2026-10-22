@@ -106,6 +106,8 @@ reversal.
 Subaccounts, categories and the reports, including roll-up, effective-category
 and FX semantics, are described in [categories.md](categories.md).
 
+Logical account groups (your own buckets over Money and Up accounts, one group per account) are described in [account-groups.md](account-groups.md): `/api/account-groups` and the `*_account_group(s)` MCP tools.
+
 Example:
 
 ```http

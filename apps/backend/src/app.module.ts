@@ -3,6 +3,8 @@ import { APP_FILTER } from '@nestjs/core';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { remoteJwks, type JwksSource } from '@taico/auth';
 import { AuthExceptionFilter, AuthModule } from '@taico/auth/nest';
+import { AccountGroupsRepository } from './account-groups/account-groups.repository';
+import { AccountGroupsService } from './account-groups/account-groups.service';
 import { AccountsRepository } from './accounts/accounts.repository';
 import { AccountsService } from './accounts/accounts.service';
 import { createMoneyResourceServer, protectedResources } from './auth/auth.setup';
@@ -106,6 +108,8 @@ export class AppModule implements NestModule {
         MoneyUserGuard,
         AccountsRepository,
         AccountsService,
+        AccountGroupsRepository,
+        AccountGroupsService,
         CategoriesRepository,
         CategoriesService,
         ReportsService,

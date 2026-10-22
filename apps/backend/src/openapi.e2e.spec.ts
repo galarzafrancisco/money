@@ -148,6 +148,11 @@ describe('REST responses match the OpenAPI response schemas', () => {
 
     await call('delete', `/api/transfers/${transfer.id}`);
     await call('delete', `/api/transactions/${withdrawal.id}`);
+    const group = await call('post', '/api/account-groups', { name: 'Everything', members: [{ kind: 'account', id: bucket.id }] });
+    await call('patch', `/api/account-groups/${group.id}`, { description: 'All of it' });
+    await call('get', `/api/account-groups/${group.id}`);
+    await call('get', '/api/account-groups?baseCurrency=AUD&fxRates=USD:1.5');
+    await call('delete', `/api/account-groups/${group.id}`);
     await call('delete', `/api/accounts/${bucket.id}`);
     await call('delete', `/api/accounts/${broker.id}?deleteTransactions=true`);
     await call('delete', `/api/categories/${category.id}?unassign=true`);

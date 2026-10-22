@@ -14,6 +14,7 @@ export const queryKeys = {
   allocations: (id: string) => ['allocations', id] as const,
   lots: (accountId: string, params?: object) => (params ? (['lots', accountId, params] as const) : (['lots', accountId] as const)),
   transfers: (accountId?: string) => (accountId ? (['transfers', accountId] as const) : (['transfers'] as const)),
+  accountGroups: ['account-groups'] as const,
   categories: ['categories'] as const,
   upStatus: ['up', 'status'] as const,
   upAccounts: (visibility: string) => ['up', 'accounts', visibility] as const,
