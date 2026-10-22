@@ -140,9 +140,6 @@ describe('Up! read-only import (mock provider)', () => {
     });
 
     it('rejects another user\'s category at the database level', async () => {
-      const token = upToken();
-      up.addCustomer(token);
-      await connect(tokenC, token);
       const mine = (await as(tokenA).post('/api/categories', { name: 'DbOther' }).expect(201)).body;
       const dataSource = t.app.get(DataSource, { strict: false });
       const [row] = await dataSource.query('SELECT id FROM up_accounts WHERE user_id <> (SELECT user_id FROM categories WHERE id = $1) LIMIT 1', [mine.id]);
