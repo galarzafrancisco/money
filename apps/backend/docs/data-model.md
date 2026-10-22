@@ -106,7 +106,10 @@ closing-price valuations: materialised snapshots of derived state, written
 only by the valuation job and always recomputable from the ledger plus closes.
 Holding rows have composite FKs to `accounts(id, user_id)` (cascade) and to
 their `valuation_days` row. A trigger on `transactions` records backdated
-BUY/SELL changes for recomputation. See [valuations.md](valuations.md).
+BUY/SELL changes for recomputation. Each request carries a checkpoint
+(`recomputed_from`, valid only while `checkpoint_for` equals its
+`requested_at`), so a request covering years of history is worked off run by
+run. See [valuations.md](valuations.md).
 
 `market_price_closes`, `market_price_series` and `market_price_splits` are the
 shared, store-first price history: market data, not per user, keyed by

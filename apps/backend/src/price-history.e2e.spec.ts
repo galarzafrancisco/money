@@ -1,5 +1,5 @@
 import { DataSource } from 'typeorm';
-import { callTool, createTestApp, type TestApp } from './test-support/test-app';
+import { callTool, createTestApp, undoMigrationsThrough, type TestApp } from './test-support/test-app';
 import { PriceHistoryService } from './valuations/price-history.service';
 import { ValuationJobService } from './valuations/valuation-job.service';
 
@@ -258,7 +258,7 @@ describe('store-first price history and as-of valuations', () => {
 
   it('migrates the price store down and back up', async () => {
     const ds = t.app.get(DataSource);
-    await ds.undoLastMigration();
+    await undoMigrationsThrough(ds, 'PriceHistoryCache1761700000000');
     const [{ exists }] = await ds.query(`SELECT to_regclass('market_price_series') IS NOT NULL AS exists`);
     expect(exists).toBe(false);
     await ds.runMigrations();

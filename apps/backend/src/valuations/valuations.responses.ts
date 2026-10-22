@@ -77,11 +77,23 @@ export const valuationDaySchema = apiSchema(
   }),
 );
 
+const historyCoverage = z
+  .object({
+    firstHoldingDate: z.string().nullable().describe('Your first purchase: the history starts here'),
+    historyStartsOn: z.string().nullable().describe('The first date materialised (firstHoldingDate unless VALUATION_BACKFILL_DAYS caps it)'),
+    settledThrough: z.string().describe('The latest date whose closes are final'),
+    missingDays: z.number().int().describe('Dates in the range that should have a valuation but are not materialised yet (a backfill in progress). They are absent from days, not zero.'),
+    partialDays: z.number().int().describe('Days in the range with pending or missing prices'),
+    complete: z.boolean().describe('Every date in the range that can be valued is materialised and complete'),
+  })
+  .describe('How much of the requested range is materialised');
+
 export const valuationHistoryResultSchema = apiSchema(
   'ValuationHistory',
   z.object({
     fromDate: z.string(),
     toDate: z.string(),
+    coverage: historyCoverage,
     accountId: z.string().nullable(),
     includeSubaccounts: z.boolean(),
     symbol: z.string().nullable(),
@@ -121,6 +133,23 @@ export const valuationStatusSchema = apiSchema(
     materialisedDays: z.number().int(),
     partialDays: z.number().int(),
     pendingRecomputeFrom: z.string().nullable(),
+    coverage: z
+      .object({
+        firstHoldingDate: z.string().nullable(),
+        historyStartsOn: z.string().nullable(),
+        historyLimitedByBackfillDays: z.boolean(),
+        requiredDays: z.number().int().describe('Dates from historyStartsOn to settledThrough'),
+        materialisedDays: z.number().int(),
+        missingDays: z.number().int().describe('Not valued yet; the job backfills them, newest first'),
+        partialDays: z.number().int(),
+        repricingDays: z.number().int().describe('Valued with another price provider; re-valued by the job'),
+        backfillComplete: z.boolean(),
+        percentComplete: z.number(),
+      })
+      .describe('Progress of the valuation history from the first purchase to settledThrough'),
+    missingPrices: z
+      .array(z.object({ symbol: z.string(), days: z.number().int(), firstDate: z.string(), lastDate: z.string() }))
+      .describe('Symbols that could not be valued (MISSING or CURRENCY_MISMATCH) on some materialised days'),
     lastRun: z.object({ startedAt: z.string().nullable(), finishedAt: z.string().nullable(), status: z.string().nullable() }).nullable(),
   }),
 );

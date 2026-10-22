@@ -26,9 +26,10 @@ What changes when you switch:
 
 - Quotes, dashboards and portfolios show `source: "yahoo"` and `isMock: false`.
 - The valuation job sees that the existing snapshots were priced by `mock` and
-  re-values every date with Yahoo closes. The first run backfills up to
-  `VALUATION_BACKFILL_DAYS` per symbol in one request per symbol, then stores
-  them. Later runs only ask for new sessions.
+  re-values every date with Yahoo closes, newest first, in batches of
+  `VALUATION_MAX_DAYS_PER_RUN` dates. Each symbol's closes are fetched once
+  for the range a batch needs (one request per symbol and gap) and stored, so
+  later batches and runs only ask for dates not stored yet.
 - Mock and Yahoo closes are stored separately (keyed by `source`). Switching
   back to `mock` re-values with mock data again, and nothing is mixed.
 

@@ -6,13 +6,17 @@ import { ValuationJobService } from './valuation-job.service';
  * Runs the valuation job in-process: shortly after startup (catching up on
  * anything missed while the app was down) and then every
  * VALUATION_JOB_INTERVAL_MINUTES. Each run only does what is due, so
- * frequent runs are cheap. Several instances may run this; the job's
- * database lease lets only one work at a time.
+ * frequent runs are cheap. While a backfill is in progress (a run left due
+ * dates behind), the next run starts after VALUATION_CATCHUP_DELAY_SECONDS
+ * instead, so long histories fill in batches without waiting an interval
+ * each. Several instances may run this; the job's database lease lets only
+ * one work at a time.
  */
 @Injectable()
 export class ValuationScheduler implements OnApplicationBootstrap, OnApplicationShutdown {
   private readonly logger = new Logger('ValuationScheduler');
   private timers: NodeJS.Timeout[] = [];
+  private catchup: NodeJS.Timeout | null = null;
   private running: Promise<unknown> | null = null;
 
   constructor(
@@ -34,6 +38,8 @@ export class ValuationScheduler implements OnApplicationBootstrap, OnApplication
   async onApplicationShutdown(): Promise<void> {
     for (const timer of this.timers) clearTimeout(timer);
     this.timers = [];
+    if (this.catchup) clearTimeout(this.catchup);
+    this.catchup = null;
     await this.running;
   }
 
@@ -41,6 +47,15 @@ export class ValuationScheduler implements OnApplicationBootstrap, OnApplication
     if (this.running) return;
     this.running = this.job
       .runOnce()
+      .then((summary) => {
+        // Still scheduled (not shutting down) and a backfill is in progress: go again soon
+        if (summary.moreDue && this.timers.length > 0 && !this.catchup) {
+          this.catchup = setTimeout(() => {
+            this.catchup = null;
+            this.tick();
+          }, this.config.valuations.catchupDelaySeconds * 1000).unref();
+        }
+      })
       .catch((error) => this.logger.error(`Valuation run crashed: ${error instanceof Error ? error.message : String(error)}`))
       .finally(() => {
         this.running = null;

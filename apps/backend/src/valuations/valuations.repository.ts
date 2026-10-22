@@ -35,7 +35,14 @@ export type ValuationHoldingRow = {
   lots: LotSnapshot[];
 };
 
-export type RecomputeRequest = { accountId: string; fromDate: string; requestedAt: string };
+/**
+ * requestedAt is the exact text, used to clear or checkpoint the request only
+ * if it was not renewed meanwhile. recomputedFrom: dates from it onwards are
+ * already re-valued for this request (null: none yet).
+ */
+export type RecomputeRequest = { accountId: string; fromDate: string; requestedAt: string; recomputedFrom: string | null };
+
+export type MissingPriceSymbol = { symbol: string; days: number; firstDate: string; lastDate: string };
 
 export type JobState = {
   leaseOwner: string | null;
@@ -130,7 +137,11 @@ export class ValuationsRepository {
    * holdings are deleted and written again in one transaction, so re-running
    * never duplicates rows and readers never see half a day.
    */
-  async replaceDay(userId: string, day: { date: string; status: DayStatus; priceProvider: string }, holdings: Omit<ValuationHoldingRow, 'date'>[]): Promise<void> {
+  async replaceDay(
+    userId: string,
+    day: { date: string; status: DayStatus; priceProvider: string },
+    holdings: Omit<ValuationHoldingRow, 'date'>[],
+  ): Promise<void> {
     await this.uow.run(async (manager) => {
       await manager.query(`DELETE FROM valuation_days WHERE user_id = $1 AND valuation_date = $2`, [userId, day.date]);
       await manager.query(
@@ -168,12 +179,13 @@ export class ValuationsRepository {
   }
 
   async recomputeRequests(userId: string): Promise<RecomputeRequest[]> {
-    const rows: { account_id: string; from_date: string; requested_at: string }[] = await this.db.query(
-      `SELECT account_id, ${DATE('from_date')} AS from_date, requested_at::text AS requested_at
+    const rows: { account_id: string; from_date: string; requested_at: string; recomputed_from: string | null }[] = await this.db.query(
+      `SELECT account_id, ${DATE('from_date')} AS from_date, requested_at::text AS requested_at,
+              CASE WHEN checkpoint_for = requested_at THEN ${DATE('recomputed_from')} END AS recomputed_from
          FROM valuation_recompute_requests WHERE user_id = $1 ORDER BY from_date`,
       [userId],
     );
-    return rows.map((r) => ({ accountId: r.account_id, fromDate: r.from_date, requestedAt: r.requested_at }));
+    return rows.map((r) => ({ accountId: r.account_id, fromDate: r.from_date, requestedAt: r.requested_at, recomputedFrom: r.recomputed_from ?? null }));
   }
 
   /** Clears the requests handled, unless one was renewed meanwhile (then it stays for the next run) */
@@ -184,6 +196,15 @@ export class ValuationsRepository {
         [userId, request.accountId, request.requestedAt],
       );
     }
+  }
+
+  /** Records how far a request has got, unless it was renewed meanwhile (then the checkpoint is void) */
+  async checkpointRequest(userId: string, request: RecomputeRequest, recomputedFrom: string): Promise<void> {
+    await this.db.query(
+      `UPDATE valuation_recompute_requests SET recomputed_from = $4, checkpoint_for = requested_at
+        WHERE user_id = $1 AND account_id = $2 AND requested_at = $3::timestamptz`,
+      [userId, request.accountId, request.requestedAt, recomputedFrom],
+    );
   }
 
   /**
@@ -221,6 +242,43 @@ export class ValuationsRepository {
     );
     const r = rows[0];
     return { earliest: r?.earliest ?? null, latest: r?.latest ?? null, days: Number(r?.days ?? 0), partialDays: Number(r?.partial ?? 0) };
+  }
+
+  /** The database clock, which stamps snapshots' computed_at */
+  async now(): Promise<Date> {
+    const rows: { ms: string | number }[] = await this.db.query(`SELECT (extract(epoch FROM clock_timestamp()) * 1000)::float8 AS ms`);
+    return new Date(Math.floor(Number(rows[0].ms)));
+  }
+
+  /** The date of the user's first purchase: where the valuation history has to start */
+  async firstPurchaseDate(userId: string): Promise<string | null> {
+    const rows: { first: string | null }[] = await this.db.query(
+      `SELECT ${DATE('MIN(date)')} AS first FROM transactions WHERE user_id = $1 AND type = 'BUY'`,
+      [userId],
+    );
+    return rows[0]?.first ?? null;
+  }
+
+  /** Counts of the user's snapshots inside [from, to] */
+  async coverageCounts(userId: string, from: string, to: string, priceProvider: string): Promise<{ days: number; partialDays: number; otherProviderDays: number }> {
+    const rows: { days: string; partial: string; other: string }[] = await this.db.query(
+      `SELECT COUNT(*) AS days, COUNT(*) FILTER (WHERE status = 'PARTIAL') AS partial, COUNT(*) FILTER (WHERE price_provider <> $4) AS other
+         FROM valuation_days WHERE user_id = $1 AND valuation_date BETWEEN $2 AND $3`,
+      [userId, from, to, priceProvider],
+    );
+    const r = rows[0];
+    return { days: Number(r?.days ?? 0), partialDays: Number(r?.partial ?? 0), otherProviderDays: Number(r?.other ?? 0) };
+  }
+
+  /** Symbols the user's snapshots could not value (MISSING or CURRENCY_MISMATCH), with the dates affected */
+  async missingPriceSymbols(userId: string): Promise<MissingPriceSymbol[]> {
+    const rows: { symbol: string; days: string; first_date: string; last_date: string }[] = await this.db.query(
+      `SELECT symbol, COUNT(DISTINCT valuation_date) AS days, ${DATE('MIN(valuation_date)')} AS first_date, ${DATE('MAX(valuation_date)')} AS last_date
+         FROM valuation_holdings WHERE user_id = $1 AND price_status IN ('MISSING', 'CURRENCY_MISMATCH')
+        GROUP BY symbol ORDER BY symbol`,
+      [userId],
+    );
+    return rows.map((r) => ({ symbol: r.symbol, days: Number(r.days), firstDate: r.first_date, lastDate: r.last_date }));
   }
 
   // ── Job lease ─────────────────────────────────────────────────────────────

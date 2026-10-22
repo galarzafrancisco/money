@@ -54,14 +54,21 @@ export type AppConfig = {
     intervalMinutes: number;
     /** Valuation date D is due once D+1 at this UTC hour has passed (after the ASX and US closes of D) */
     settleHourUtc: number;
-    /** How far back history is materialised */
-    backfillDays: number;
+    /**
+     * Optional cap on how far back history is materialised. null (the
+     * default) values the whole history, from the first purchase.
+     */
+    backfillDays: number | null;
     /** Days with pending or missing prices are re-tried for this many days */
     recheckDays: number;
     /** The oldest previous close that may stand in on a non-trading or pending day */
     maxCarryDays: number;
     /** Upper bound on dates computed per user per run; the rest wait for the next run */
     maxDaysPerRun: number;
+    /** After a run that left due dates behind (a backfill in progress), the next run starts this soon */
+    catchupDelaySeconds: number;
+    /** PARTIAL days older than the recheck window are re-tried (lowest priority) once their snapshot is this old */
+    partialRetryDays: number;
   };
 };
 
@@ -145,10 +152,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       jobEnabled: (env.VALUATION_JOB_ENABLED ?? (nodeEnv === 'test' ? 'false' : 'true')) === 'true',
       intervalMinutes: intEnv(env, 'VALUATION_JOB_INTERVAL_MINUTES', 60, 1, 24 * 60),
       settleHourUtc: intEnv(env, 'VALUATION_SETTLE_HOUR_UTC', 6, 0, 23),
-      backfillDays: intEnv(env, 'VALUATION_BACKFILL_DAYS', 366, 1, 3660),
+      backfillDays: env.VALUATION_BACKFILL_DAYS ? intEnv(env, 'VALUATION_BACKFILL_DAYS', 0, 1, 36600) : null,
       recheckDays: intEnv(env, 'VALUATION_RECHECK_DAYS', 7, 0, 60),
       maxCarryDays: intEnv(env, 'VALUATION_MAX_CARRY_DAYS', 7, 1, 31),
       maxDaysPerRun: intEnv(env, 'VALUATION_MAX_DAYS_PER_RUN', 400, 1, 5000),
+      catchupDelaySeconds: intEnv(env, 'VALUATION_CATCHUP_DELAY_SECONDS', 60, 1, 24 * 3600),
+      partialRetryDays: intEnv(env, 'VALUATION_PARTIAL_RETRY_DAYS', 7, 1, 366),
     },
   };
 }
