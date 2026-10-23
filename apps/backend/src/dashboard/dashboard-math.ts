@@ -93,3 +93,24 @@ export function byAmountDesc<T>(amount: (row: T) => string | null, name: (row: T
     return name(a).localeCompare(name(b));
   };
 }
+
+/** The last finished session strictly before `date` (YYYY-MM-DD), or null. Splits after it make the comparison meaningless, so they give null too. */
+export function previousClose(
+  series: { currency: string; closes: readonly { tradingDate: string; close: string }[]; splits: readonly { date: string }[] },
+  date: string,
+  currency: string,
+): { tradingDate: string; close: string } | null {
+  if (series.currency !== currency) return null;
+  const prior = [...series.closes].reverse().find((c) => c.tradingDate < date);
+  if (!prior) return null;
+  if (series.splits.some((s) => s.date > prior.tradingDate && s.date <= date)) return null;
+  return prior;
+}
+
+/**
+ * Change in value of one holding since the previous close:
+ * quantity × (current price − previous close).
+ */
+export function holdingChange(quantity: MoneyDecimal, price: string, prevClose: string): MoneyDecimal {
+  return quantity.times(dec(price).minus(dec(prevClose)));
+}

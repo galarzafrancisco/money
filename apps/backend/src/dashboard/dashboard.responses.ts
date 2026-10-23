@@ -55,6 +55,16 @@ export const dashboardSchema = apiSchema(
       stalePriceDays: z.number().int(),
     }),
     total: reportTotalsSchema,
+    dailyChange: z
+      .object({
+        byCurrency: z.array(z.object({ currency: z.string(), change: decimalOut('Signed: negative is a loss') })),
+        converted: z.object({ baseCurrency: z.string(), change: decimalOut('Signed change in displayCurrency: negative is a loss') }).nullable().describe('Null when a rate is missing or no holding could be compared'),
+        percent: percent("Converted change as a percentage of the compared holdings' value at the previous close"),
+        holdingsIncluded: z.number().int(),
+        holdingsExcluded: z.number().int().describe('Holdings with no market price, no previous close, or a split since: left out of the change'),
+        complete: z.boolean().describe('Every holding was compared and every currency converted'),
+      })
+      .describe("Change in total tracked assets since the previous session close: holdings' price movement only; cash is not a market move"),
     assetClasses: z.array(
       z.object({
         assetClass,

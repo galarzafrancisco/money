@@ -75,6 +75,7 @@ describe('dashboard', () => {
       { currency: 'USD', cash: '5700', holdings: '8000', total: '13700' },
     ]);
     expect(body.total.converted.total).toBe('107800');
+    expect(body.dailyChange).toEqual(expect.objectContaining({ byCurrency: expect.any(Array), holdingsIncluded: expect.any(Number), holdingsExcluded: expect.any(Number), complete: expect.any(Boolean) }));
 
     const byClass = Object.fromEntries(body.assetClasses.map((c: any) => [c.assetClass, c]));
     expect(Object.keys(byClass)).toEqual(['cash', 'shares', 'super']);

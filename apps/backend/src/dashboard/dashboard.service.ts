@@ -1,17 +1,21 @@
 import { Injectable } from '@nestjs/common';
 import type { AccountType } from '../accounts/account.entity';
-import { fmt } from '../common/decimal';
+import { dec, fmt } from '../common/decimal';
 import { parseInput } from '../common/validation';
+import { addDays } from '../market-prices/market-calendar';
 import { MarketPricesService } from '../market-prices/market-prices.service';
 import { buildAccountTree, effectiveItemCategory, totalsOf, type FxPolicy, type TotalsView, type ValuationItem } from '../reports/aggregation';
 import { ReportsService, type ItemView } from '../reports/reports.service';
 import type { CurrentUser } from '../users/users.service';
+import { PriceHistoryService } from '../valuations/price-history.service';
 import {
   ASSET_CLASSES,
   STALE_PRICE_DAYS,
   assetClassOf,
   byAmountDesc,
   groupBy,
+  holdingChange,
+  previousClose,
   percentOf,
   priceStatusOf,
   sum,
@@ -35,6 +39,21 @@ export type FxRateView = {
   isMock: boolean;
   /** The provider could not be reached; the last known rate */
   isStale: boolean;
+};
+
+export type DailyChangeView = {
+  /** Change per holding currency, before conversion */
+  byCurrency: { currency: string; change: string }[];
+  /** In the display currency; null when a rate is missing or nothing could be compared */
+  converted: { baseCurrency: string; change: string } | null;
+  /** Converted change as a percentage of the same holdings' value at the previous close; null when unknown */
+  percent: string | null;
+  /** Holdings compared against a previous close */
+  holdingsIncluded: number;
+  /** Holdings left out: no market price, no previous close, or a split since */
+  holdingsExcluded: number;
+  /** True when every holding was compared and every currency converted */
+  complete: boolean;
 };
 
 export type DashboardItemView = ItemView & { assetClass: AssetClass; priceStatus: PriceStatus | null };
@@ -65,6 +84,8 @@ export type DashboardView = {
   };
   /** Every cash balance and holding, counted once */
   total: TotalsView;
+  /** Change in total tracked assets since the previous close: holdings' price movement only */
+  dailyChange: DailyChangeView;
   assetClasses: {
     assetClass: AssetClass;
     totals: TotalsView;
@@ -112,6 +133,7 @@ export type DashboardView = {
 };
 
 const NOTES = [
+  'dailyChange is the price movement of every holding priced at market: quantity × (latest price − previous session close), converted at the same rates as the totals. Cash is not included (deposits, withdrawals and bank balances are not market moves), and holdings without a market price or previous close are left out and counted in holdingsExcluded.',
   'Total, asset classes, categories and top-level accounts each split the same cash balances and holdings, so each adds up to the total and nothing is counted twice.',
   'Asset class: everything in a SUPERANNUATION account or any subaccount of one is super (its balance recorded as cash, and any shares held in it). Other holdings are shares; other cash is cash.',
   'Ticker concentration covers the share portfolio only (not shares held inside super). percentOfShares divides by the share portfolio; percentOfTotal divides by all tracked assets.',
@@ -130,6 +152,7 @@ export class DashboardService {
   constructor(
     private readonly reports: ReportsService,
     private readonly prices: MarketPricesService,
+    private readonly history: PriceHistoryService,
   ) {}
 
   async dashboard(user: CurrentUser, input: DashboardOptionsInput = {}, now = new Date()): Promise<DashboardView> {
@@ -165,6 +188,8 @@ export class DashboardService {
     const total = totals(items);
     const grand = total.converted?.total ?? null;
     const { pathOf } = ctx;
+
+    const dailyChange = await this.dailyChange(items, fx, display, now);
 
     // ── Asset classes
     const classOf = new Map(items.map((item) => [item, assetClassOf(item, ctx.byId)]));
@@ -261,12 +286,57 @@ export class DashboardService {
         stalePriceDays: STALE_PRICE_DAYS,
       },
       total,
+      dailyChange,
       assetClasses,
       categories,
       accounts,
       shares: { totals: sharesTotals, percentOfTotal: percentOf(sharesConverted, grand), tickers },
       warnings,
       notes: NOTES,
+    };
+  }
+
+  /** Price movement since the previous close across every market-priced holding */
+  private async dailyChange(items: readonly ValuationItem[], fx: FxPolicy | null, display: string, now: Date): Promise<DailyChangeView> {
+    const holdings = items.filter((i) => i.kind === 'holding');
+    const marketHeld = holdings.filter((i) => i.basis === 'market' && i.price);
+    const symbols = [...new Set(marketHeld.map((i) => i.symbol!))];
+    const today = now.toISOString().slice(0, 10);
+    const series = symbols.length > 0 ? await this.history.getSeries(symbols, { from: addDays(today, -10), to: today }, now) : new Map();
+
+    const change = new Map<string, ReturnType<typeof dec>>();
+    const before = new Map<string, ReturnType<typeof dec>>();
+    let included = 0;
+    for (const item of marketHeld) {
+      const found = series.get(item.symbol!)?.series;
+      const prev = found ? previousClose(found, item.price!.asOf.slice(0, 10), item.currency) : null;
+      if (!prev) continue;
+      included += 1;
+      const delta = holdingChange(item.quantity!, item.price!.price, prev.close);
+      change.set(item.currency, (change.get(item.currency) ?? dec(0)).plus(delta));
+      before.set(item.currency, (before.get(item.currency) ?? dec(0)).plus(item.quantity!.times(dec(prev.close))));
+    }
+
+    const byCurrency = [...change].map(([currency, c]) => ({ currency, change: fmt(c) })).sort((a, b) => a.currency.localeCompare(b.currency));
+    const rateOf = (currency: string) => (currency === display ? dec(1) : fx ? dec(fx.rates[currency]) : null);
+    const convert = (m: Map<string, ReturnType<typeof dec>>) => {
+      let acc = dec(0);
+      for (const [currency, v] of m) {
+        const rate = rateOf(currency);
+        if (!rate) return null;
+        acc = acc.plus(v.times(rate));
+      }
+      return acc;
+    };
+    const converted = included > 0 ? convert(change) : null;
+    const convertedBefore = included > 0 ? convert(before) : null;
+    return {
+      byCurrency,
+      converted: converted ? { baseCurrency: display, change: fmt(converted) } : null,
+      percent: converted && convertedBefore ? percentOf(fmt(converted), fmt(convertedBefore)) : null,
+      holdingsIncluded: included,
+      holdingsExcluded: holdings.length - included,
+      complete: holdings.length === included && (included === 0 || converted !== null),
     };
   }
 }

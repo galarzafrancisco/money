@@ -1,4 +1,5 @@
-import { assetClassOf, byAmountDesc, percentOf, priceStatusOf, worstStatus, type TypedAccount } from './dashboard-math';
+import { dec } from '../common/decimal';
+import { assetClassOf, holdingChange, previousClose, byAmountDesc, percentOf, priceStatusOf, worstStatus, type TypedAccount } from './dashboard-math';
 
 describe('dashboard maths', () => {
   const accounts: TypedAccount[] = [
@@ -49,5 +50,19 @@ describe('dashboard maths', () => {
       { n: 'd', v: '10' },
     ];
     expect([...rows].sort(byAmountDesc((r) => r.v, (r) => r.n)).map((r) => r.n)).toEqual(['c', 'a', 'd', 'b']);
+  });
+
+  it('finds the previous close before the quote date, and gives nothing across a split or a currency mismatch', () => {
+    const series = { currency: 'AUD', closes: [{ tradingDate: '2026-10-20', close: '10' }, { tradingDate: '2026-10-21', close: '11' }], splits: [] as { date: string }[] };
+    expect(previousClose(series, '2026-10-22', 'AUD')).toEqual({ tradingDate: '2026-10-21', close: '11' });
+    expect(previousClose(series, '2026-10-21', 'AUD')?.close).toBe('10');
+    expect(previousClose(series, '2026-10-20', 'AUD')).toBeNull();
+    expect(previousClose(series, '2026-10-22', 'USD')).toBeNull();
+    expect(previousClose({ ...series, splits: [{ date: '2026-10-22' }] }, '2026-10-22', 'AUD')).toBeNull();
+  });
+
+  it('computes a holding change as quantity × price movement, negative for a loss', () => {
+    expect(holdingChange(dec('10'), '12.5', '11').toString()).toBe('15');
+    expect(holdingChange(dec('10'), '10', '11').toString()).toBe('-10');
   });
 });

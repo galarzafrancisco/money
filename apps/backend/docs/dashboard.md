@@ -24,6 +24,25 @@ counted twice:
 | `accounts` | Top-level accounts, each including all its subaccounts (the report's `rolledUp`) |
 | `shares.tickers` | Share-class holdings grouped by symbol across accounts. `positions` lists the account each one is in |
 
+## Daily change
+
+`dailyChange` is the change in total tracked assets since the previous
+session close, shown on the web Dashboard as e.g. `-12K` (red for a loss,
+green for a gain). It is the **price movement of holdings**:
+`quantity × (latest price − previous close)` for every holding valued at a
+market price, converted to the display currency at the same rates as the
+totals. `percent` is that change over the same holdings' value at the
+previous close.
+
+- Cash (including deposits, withdrawals and imported Up balances) is not a
+  market move, so it is not part of the change.
+- A holding with no market price, no previous close, a currency mismatch or a
+  split since the previous close is left out and counted in
+  `holdingsExcluded` (`complete: false`).
+- With a missing FX rate, `converted` and `percent` are `null`; `byCurrency`
+  still gives each currency's change.
+- Previous closes come from the shared price store (`PriceHistoryService`).
+
 ## Superannuation
 
 `SUPERANNUATION` is an account type. Everything in a super account or in its
