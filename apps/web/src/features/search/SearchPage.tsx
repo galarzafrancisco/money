@@ -139,6 +139,12 @@ export function SearchPage() {
   const [draft, setDraftState] = useState<Draft>(applied);
   const [errors, setErrors] = useState<Partial<Record<keyof Draft, string>>>({});
   const accounts = useSearchAccounts();
+  // Back/Forward and same-route navigation change the URL: show the filters that produced the results
+  const urlKey = params.toString();
+  useEffect(() => {
+    setDraftState(draftFrom(new URLSearchParams(urlKey)));
+    setErrors({});
+  }, [urlKey]);
   const timezone = browserTimezone();
   const setDraft = (patch: Partial<Draft>) => setDraftState((d) => ({ ...d, ...patch }));
 

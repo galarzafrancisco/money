@@ -60,4 +60,24 @@ describe('search', () => {
     renderApp('/search?text=zzz&go=1', { client });
     expect(await screen.findByText('No transactions match')).toBeInTheDocument();
   });
+
+  it('loads accounts beyond the first page', async () => {
+    const client = setup();
+    const acc = (id: string, name: string) => ({ id, name, source: 'manual', type: 'TRANSACTIONAL', currency: 'AUD', visible: true, parentAccountId: null, removed: false, matchType: 'exact' });
+    client.search.searchAccounts
+      .mockResolvedValueOnce({ items: [acc('a1', 'First')], nextOffset: 1 })
+      .mockResolvedValueOnce({ items: [acc('a2', 'Late account')], nextOffset: null });
+    renderApp('/search', { client });
+    expect(await screen.findByRole('option', { name: /Late account/ })).toBeInTheDocument();
+    expect(client.search.searchAccounts).toHaveBeenCalledWith(expect.objectContaining({ offset: 1 }));
+  });
+
+  it('keeps the controls in sync with the URL on navigation', async () => {
+    const client = setup();
+    client.search.searchTransactions.mockResolvedValue(page([item()]));
+    const { user } = renderApp('/search?go=1&text=one', { client });
+    expect(await screen.findByLabelText(/Description contains/)).toHaveValue('one');
+    await user.click(screen.getByRole('link', { name: 'Search' }));
+    await vi.waitFor(() => expect(screen.getByLabelText(/Description contains/)).toHaveValue(''));
+  });
 });

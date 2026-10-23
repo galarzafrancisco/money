@@ -1,4 +1,4 @@
-import type { TransactionSearchPage } from '@money/client';
+import type { TransactionSearchPage, AccountSearchPage } from '@money/client';
 import { keepPreviousData, useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { useApi } from '../../app/api';
 
@@ -36,7 +36,18 @@ export function useSearchAccounts() {
   const { run } = useApi();
   return useQuery({
     queryKey: ['search', 'accounts'],
-    queryFn: ({ signal }) => run((c) => c.search.searchAccounts({ limit: 100, visibility: 'all', signal })),
+    // Page through every account so none is missing from the picker or the result labels
+    queryFn: async ({ signal }) => {
+      const items: AccountSearchPage['items'] = [];
+      let offset: number | null = 0;
+      while (offset !== null) {
+        const start: number = offset;
+        const page: AccountSearchPage = await run((c) => c.search.searchAccounts({ limit: 100, offset: start, visibility: 'all', signal }));
+        items.push(...page.items);
+        offset = page.nextOffset ?? null;
+      }
+      return { items, nextOffset: null };
+    },
   });
 }
 
