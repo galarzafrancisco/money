@@ -20,6 +20,19 @@ export function useUpAccounts(visibility: UpVisibility, enabled = true) {
   });
 }
 
+const UP_PAGE_SIZE = 50;
+
+/** One page of an Up account's imported transactions (read-only; works for hidden accounts too) */
+export function useUpTransactions(accountId: string, offset: number) {
+  const { run } = useApi();
+  return useQuery({
+    queryKey: queryKeys.upTransactions(accountId, offset),
+    queryFn: ({ signal }) => run((c) => c.up.listUpTransactions({ accountId, limit: UP_PAGE_SIZE, offset, signal })),
+  });
+}
+
+export { UP_PAGE_SIZE };
+
 function useInvalidateUp() {
   const queryClient = useQueryClient();
   return () => queryClient.invalidateQueries({ queryKey: ['up'] });

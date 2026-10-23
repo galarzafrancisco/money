@@ -92,7 +92,7 @@ export function AccountsPage() {
         if (row.kind === 'up') {
           return (
             <span className="account-name">
-              {row.up.displayName}
+              <Link to={`/accounts/up/${row.up.id}`}>{row.up.displayName}</Link>
               <Badge>Cash</Badge>
               {!row.up.visible && <Badge tone="warning">Hidden</Badge>}
             </span>

@@ -64,6 +64,7 @@ export function fakeClient(): FakeClient {
     up: {
       getUpStatus: resolve({ configured: true, status: 'none', webhookStatus: 'none', connectedAt: null, lastSyncAt: null, lastError: null, accounts: { total: 0, visible: 0, hidden: 0 }, hint: null }),
       listUpAccounts: resolve([]),
+      listUpTransactions: resolve({ items: [], nextOffset: null }),
       connectUp: vi.fn(),
       disconnectUp: vi.fn(),
       syncUp: vi.fn(),

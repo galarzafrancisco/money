@@ -6,6 +6,7 @@ import { AccountSettings } from '../features/accounts/AccountSettings';
 import { AccountsPage } from '../features/accounts/AccountsPage';
 import { AccountSubaccounts } from '../features/accounts/AccountSubaccounts';
 import { NewAccountPage } from '../features/accounts/NewAccountPage';
+import { UpAccountPage } from '../features/connections/UpAccountPage';
 import { ConnectionsPage } from '../features/connections/ConnectionsPage';
 import { CategoriesPage } from '../features/categories/CategoriesPage';
 import { DashboardCategories } from '../features/dashboard/DashboardCategories';
@@ -33,6 +34,7 @@ export function AppRoutes() {
       <Route path="/accounts" element={<AccountsPage />} />
       <Route path="/accounts/groups" element={<AccountGroupsPage />} />
       <Route path="/accounts/new" element={<NewAccountPage />} />
+      <Route path="/accounts/up/:upAccountId" element={<UpAccountPage />} />
       <Route path="/accounts/:accountId" element={<AccountLayout />}>
         <Route index element={<AccountOverview />} />
         <Route path="transactions" element={<AccountTransactions />} />
