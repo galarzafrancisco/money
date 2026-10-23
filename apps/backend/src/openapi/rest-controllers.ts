@@ -6,6 +6,7 @@ import { DashboardController } from '../dashboard/dashboard.controller';
 import { LotsController } from '../lots/lots.controller';
 import { PortfolioController } from '../portfolio/portfolio.controller';
 import { ReportsController } from '../reports/reports.controller';
+import { SearchController } from '../search/search.controller';
 import { TransactionsController } from '../transactions/transactions.controller';
 import { TransfersController } from '../transfers/transfers.controller';
 import { UpController } from '../up/up.controller';
@@ -27,4 +28,5 @@ export const REST_CONTROLLERS: readonly Type[] = [
   TransfersController,
   ValuationsController,
   UpController,
+  SearchController,
 ];

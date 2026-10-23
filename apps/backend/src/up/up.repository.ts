@@ -11,9 +11,13 @@ export type UpTransactionFilter = {
   toDate?: string;
   includeDeleted?: boolean;
   reconciliation?: 'matched' | 'unmatched';
+  /** Exact Up descriptions (already resolved from a merchant key) */
+  descriptions?: string[];
   limit: number;
   offset: number;
 };
+
+export type MerchantLabelRow = { description: string; transactionCount: number; firstAt: Date; lastAt: Date };
 
 export type UpAccountValues = {
   upId: string;
@@ -161,6 +165,10 @@ export class UpRepository {
       if (filter.upAccountIds.length === 0) return [];
       query.andWhere('t.up_account_id IN (:...accountIds)', { accountIds: filter.upAccountIds });
     }
+    if (filter.descriptions) {
+      if (filter.descriptions.length === 0) return [];
+      query.andWhere('t.description IN (:...descriptions)', { descriptions: filter.descriptions });
+    }
     if (filter.status) query.andWhere('t.status = :status', { status: filter.status });
     if (filter.fromDate) query.andWhere('t.up_created_at >= :from', { from: `${filter.fromDate}T00:00:00Z` });
     if (filter.toDate) query.andWhere('t.up_created_at < :to', { to: new Date(Date.parse(`${filter.toDate}T00:00:00Z`) + 86_400_000) });
@@ -168,6 +176,28 @@ export class UpRepository {
     if (filter.reconciliation === 'matched') query.andWhere('t.matched_transaction_id IS NOT NULL');
     if (filter.reconciliation === 'unmatched') query.andWhere('t.matched_transaction_id IS NULL');
     return query.orderBy('t.up_created_at', 'DESC').addOrderBy('t.id', 'DESC').take(filter.limit).skip(filter.offset).getMany();
+  }
+
+  /**
+   * One row per distinct merchant label (Up's `description`) over live,
+   * non-transfer transactions of these accounts. Bounded by the number of
+   * distinct labels, not by the number of transactions.
+   */
+  async merchantLabels(userId: string, upAccountIds: string[], manager: EntityManager = this.uow.manager): Promise<MerchantLabelRow[]> {
+    if (upAccountIds.length === 0) return [];
+    const rows = await manager.query(
+      `SELECT description, COUNT(*)::int AS transaction_count, MIN(up_created_at) AS first_at, MAX(up_created_at) AS last_at
+       FROM up_transactions
+       WHERE user_id = $1 AND up_account_id = ANY($2::uuid[]) AND deleted_at IS NULL AND transfer_up_account_id IS NULL
+       GROUP BY description`,
+      [userId, upAccountIds],
+    );
+    return rows.map((r: { description: string; transaction_count: number; first_at: Date | string; last_at: Date | string }) => ({
+      description: r.description,
+      transactionCount: Number(r.transaction_count),
+      firstAt: new Date(r.first_at),
+      lastAt: new Date(r.last_at),
+    }));
   }
 
   async moneyTransactionExists(userId: string, transactionId: string, manager: EntityManager = this.uow.manager): Promise<boolean> {

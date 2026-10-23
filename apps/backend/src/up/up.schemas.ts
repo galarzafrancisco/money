@@ -41,6 +41,7 @@ export const listUpTransactionsShape = {
   fromDate: isoDate.optional().describe('Created on or after this date (UTC)'),
   toDate: isoDate.optional().describe('Created on or before this date (UTC)'),
   includeDeleted: z.union([z.boolean(), z.enum(['true', 'false']).transform((value) => value === 'true')]).optional().describe('Also list transactions Up has since deleted (kept for provenance)'),
+  merchantKey: z.string().regex(/^up:[a-z0-9-]+$/).optional().describe('Only transactions of this merchant (a key from search_merchants)'),
   reconciliation: z.enum(['matched', 'unmatched']).optional().describe('matched: linked to a manual Money transaction. unmatched: not linked.'),
   limit: z.coerce.number().int().min(1).max(500).optional().describe('Page size, default 100'),
   offset: z.coerce.number().int().min(0).optional().describe('Rows to skip (use nextOffset from the previous page)'),

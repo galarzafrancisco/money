@@ -8,6 +8,7 @@ import { AccountsService } from '../accounts/accounts.service';
 import { CategoriesService } from '../categories/categories.service';
 import type { CurrentUser } from '../users/users.service';
 import { UpAuthRejectedError, UpUnavailableError, type UpApiClient } from './up-api.client';
+import { merchantKeyOf } from '../search/name-match';
 import { UpVault } from './up-vault';
 import { UP_API_CLIENT, UpSyncService, type SyncStats } from './up-sync.service';
 import { UpIntegrationEntity, type UpAccountEntity, type UpSyncRunEntity, type UpTransactionEntity } from './up.entities';
@@ -210,8 +211,14 @@ export class UpService {
     }
     const limit = query.limit ?? 100;
     const offset = query.offset ?? 0;
+    let descriptions: string[] | undefined;
+    if (query.merchantKey) {
+      const labels = await this.repo.merchantLabels(user.id, scope.map((account) => account.id));
+      descriptions = labels.filter((label) => merchantKeyOf(label.description) === query.merchantKey).map((label) => label.description);
+    }
     const rows = await this.repo.listTransactions(user.id, {
       upAccountIds: scope.map((account) => account.id),
+      descriptions,
       status: query.status,
       fromDate: query.fromDate,
       toDate: query.toDate,
