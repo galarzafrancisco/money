@@ -4,7 +4,7 @@ import { dec, fmt } from '../common/decimal';
 import { NotFoundError } from '../common/errors';
 import { isUuid, parseInput } from '../common/validation';
 import { replayLedger } from '../ledger/ledger-engine';
-import { toLedgerEntry } from '../transactions/transaction.mapper';
+import { SplitsService } from '../splits/splits.service';
 import { TransactionsRepository } from '../transactions/transactions.repository';
 import { type TransactionView } from '../transactions/transaction.mapper';
 import { TransactionsService } from '../transactions/transactions.service';
@@ -49,6 +49,7 @@ export class UnifiedAccountsService {
     private readonly transactionRows: TransactionsRepository,
     private readonly upRepo: UpRepository,
     private readonly up: UpService,
+    private readonly splits: SplitsService,
   ) {}
 
   async list(user: CurrentUser, input: unknown = {}): Promise<UnifiedAccountView[]> {
@@ -60,11 +61,12 @@ export class UnifiedAccountsService {
     ]);
     const byAccount = new Map<string, typeof rows>();
     for (const row of rows) byAccount.set(row.accountId, [...(byAccount.get(row.accountId) ?? []), row]);
+    const splits = await this.splits.index(rows.filter((r) => r.symbol).map((r) => r.symbol!));
     const out: UnifiedAccountView[] = manual.map((a) => ({
       ...a,
       source: 'manual',
       visible: true,
-      balances: cashBalances(replayLedger((byAccount.get(a.id) ?? []).map(toLedgerEntry)).cash),
+      balances: cashBalances(replayLedger(this.splits.presentEntriesWith(byAccount.get(a.id) ?? [], splits)).cash),
     }));
     for (const u of upAccounts) {
       if (visibility === 'visible' && !u.visible) continue;
@@ -79,7 +81,7 @@ export class UnifiedAccountsService {
     if (upAccount) return upToUnified(upAccount);
     const manual = await this.accounts.get(user, accountId); // throws NotFoundError
     const rows = await this.transactionRows.list(user.id, { accountId: manual.id });
-    return { ...manual, source: 'manual', visible: true, balances: cashBalances(replayLedger(rows.map(toLedgerEntry)).cash) };
+    return { ...manual, source: 'manual', visible: true, balances: cashBalances(replayLedger(await this.splits.presentEntries(rows)).cash) };
   }
 
   /** An account's transactions, whichever kind of account it is. Hidden Up accounts work when asked for by ID. */

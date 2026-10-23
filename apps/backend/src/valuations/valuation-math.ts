@@ -7,12 +7,15 @@ import { compareEntries, replayLedger } from '../ledger/ledger-engine';
 import type { LedgerEntry, Position } from '../ledger/ledger.types';
 import { addDays, daysBetween, isWeekend } from '../market-prices/market-calendar';
 import type { DailyClose, DailyCloseSeries } from '../market-prices/market-price.port';
+import { NO_SPLITS, positionOnDate, splitsBetween, type SplitIndex, type StockSplit } from '../splits/split-math';
 import type { ValuationHoldingRow } from './valuations.repository';
 
 /**
  * Open positions at the end of each date (every entry dated on or before
  * it), replaying the ledger as it stood then. Quantities are historical, not
- * today's. Dates must be ascending.
+ * today's, and in the share basis of the entries (the present basis when
+ * they come from SplitsService.presentEntries; holdingsOn converts them to
+ * each date's basis). Dates must be ascending.
  */
 export function positionsByDate(entries: readonly LedgerEntry[], dates: readonly string[]): Map<string, Position[]> {
   const sorted = [...entries].sort(compareEntries);
@@ -106,23 +109,26 @@ export function priceHolding(
   date: string,
   result: SeriesResult | undefined,
   maxCarryDays: number,
+  splits: readonly StockSplit[] = [],
 ): PricedHolding {
   const priced = priceAtClose(position, date, result, maxCarryDays);
-  const notes = [priced.note, splitWarning(position, date, priced.series)].filter((n): n is string => !!n);
+  const notes = [priced.note, splitNote(position, date, splits)].filter((n): n is string => !!n);
   return { ...priced, note: notes.length > 0 ? notes.join('. ') : null };
 }
 
 /**
- * Closes are as traded and ledger quantities are as recorded; corporate
- * actions are not modelled. A split while the holding was held means the
- * recorded quantity no longer matches the shares really held after it.
+ * Splits are modelled (docs/stock-splits.md): the quantity is in the share
+ * basis of the valuation date, so it matches that date's as-traded close.
+ * A split while the holding was held is named, to explain the step in the
+ * quantity and the close.
  */
-function splitWarning(position: { lots?: Position['lots'] }, date: string, series: DailyCloseSeries | null): string | null {
+function splitNote(position: { symbol: string; lots?: Position['lots'] }, date: string, splits: readonly StockSplit[]): string | null {
   const firstAcquired = position.lots?.reduce<string | null>((min, lot) => (min === null || lot.acquiredOn < min ? lot.acquiredOn : min), null);
-  if (!series || !firstAcquired) return null;
-  const split = series.splits.find((s) => s.date > firstAcquired && s.date <= date);
-  if (!split) return null;
-  return `${series.symbol} split ${split.numerator}:${split.denominator} on ${split.date}, while held; splits are not recorded in the ledger, so the quantity may not match the shares held after it`;
+  if (!firstAcquired) return null;
+  const during = splitsBetween(splits, firstAcquired, date);
+  if (during.length === 0) return null;
+  const list = during.map((s) => `${s.numerator}:${s.denominator} on ${s.effectiveDate}`).join(', ');
+  return `${position.symbol} split ${list} while held; the quantity and close are in the ${date} share basis`;
 }
 
 function priceAtClose(position: Pick<Position, 'symbol' | 'currency' | 'quantity'>, date: string, result: SeriesResult | undefined, maxCarryDays: number): PricedHolding {
@@ -179,11 +185,15 @@ export function holdingsOn(
   date: string,
   series: Map<string, SeriesResult>,
   maxCarryDays: number,
+  splits: SplitIndex = NO_SPLITS,
 ): Omit<ValuationHoldingRow, 'date'>[] {
   const holdings: Omit<ValuationHoldingRow, 'date'>[] = [];
   for (const { accountId, byDate } of positions) {
-    for (const position of byDate.get(date) ?? []) {
-      const priced = priceHolding(position, date, series.get(position.symbol), maxCarryDays);
+    for (const present of byDate.get(date) ?? []) {
+      // Positions are replayed in the present basis; the date's close is as traded, so value the shares held that day
+      const own = splits.get(present.symbol);
+      const position = positionOnDate(present, own, date);
+      const priced = priceHolding(position, date, series.get(position.symbol), maxCarryDays, own);
       const unit = priced.close ? fmt(dec(priced.close.close)) : null;
       holdings.push({
         accountId,
@@ -201,6 +211,9 @@ export function holdingsOn(
         exchangeTimezone: priced.series?.exchangeTimezone ?? null,
         marketValue: priced.marketValue ? fmt(priced.marketValue) : null,
         priceNote: priced.note,
+        splitFactor: fmt(position.factor),
+        splitAdjustedQuantity: fmt(position.presentQuantity),
+        splitAdjustedClose: unit ? fmt(dec(unit).dividedBy(position.factor)) : null,
         lots: position.lots.map((lot) => ({
           lotId: lot.lotId,
           acquiredOn: lot.acquiredOn,

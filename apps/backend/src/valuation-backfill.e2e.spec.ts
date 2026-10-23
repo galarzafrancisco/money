@@ -139,11 +139,11 @@ describe('automatic historical valuation backfill', () => {
     expect(sale[0].holdings!.map((h) => h.symbol).sort()).toEqual(['OLDCO', 'VAS.AX', 'VTI']);
     expect(sale[1].holdings!.map((h) => h.symbol).sort()).toEqual(['VAS.AX', 'VTI']);
 
-    // Closes as traded on each date (no later split applied backwards), quantities as recorded, the split flagged
+    // Closes as traded on each date; the split is applied to the quantity (recorded today, so in today's basis), so value has no cliff
     const split = await holdings('2022-06-03', '2022-06-06');
     const vti = (d: (typeof split)[number]) => d.holdings!.find((h) => h.symbol === 'VTI')!;
-    expect(vti(split[0])).toMatchObject({ quantity: '5', marketValue: '1000', price: { close: '200', note: null } });
-    expect(vti(split[3])).toMatchObject({ quantity: '5', marketValue: '500', price: { close: '100', note: expect.stringMatching(/split 2:1 on 2022-06-06, while held/) } });
+    expect(vti(split[0])).toMatchObject({ quantity: '2.5', marketValue: '500', price: { close: '200', note: null }, split: { factor: '2', adjustedQuantity: '5', adjustedClose: '100' } });
+    expect(vti(split[3])).toMatchObject({ quantity: '5', marketValue: '500', price: { close: '100', note: expect.stringMatching(/split 2:1 on 2022-06-06 while held/) }, split: { factor: '1' } });
 
     // Cash flows are not performance: a withdrawal changes no holding's value or cost base
     const cash = await history({ fromDate: '2023-01-31', toDate: '2023-02-01' });

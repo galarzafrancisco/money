@@ -40,9 +40,11 @@ These need Francisco's decision before Money can report AUD tax figures:
    it, or leave it out of scope?
 4. **CGT discount.** Should Money show a "discounted gain" figure, given
    residency, or only the eligibility flag?
-5. **Dividend reinvestment plans (DRP), corporate actions** (splits, mergers,
-   return of capital, AMIT cost-base adjustments for ETFs such as VAS). None are
-   modelled yet. AMIT adjustments in particular change the cost base of
+5. **Dividend reinvestment plans (DRP), corporate actions** (mergers, return
+   of capital, AMIT cost-base adjustments for ETFs such as VAS). None are
+   modelled yet. Stock splits are: they change share counts and per-share cost,
+   never a parcel's total cost base or acquisition date (see
+   [stock-splits.md](stock-splits.md)). AMIT adjustments in particular change the cost base of
    Australian ETFs every year.
 6. **Same-day ordering.** Transactions on the same date replay in the order
    they were recorded. Is that enough, or do intraday trades need a time?

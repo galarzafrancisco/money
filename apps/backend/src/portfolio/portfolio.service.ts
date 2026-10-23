@@ -3,7 +3,7 @@ import { MoneyDecimal, ZERO, dec, fmt } from '../common/decimal';
 import { AccountsService, type AccountView } from '../accounts/accounts.service';
 import { heldOverTwelveMonths, replayLedger } from '../ledger/ledger-engine';
 import { MarketPricesService, type QuoteResult } from '../market-prices/market-prices.service';
-import { toLedgerEntry } from '../transactions/transaction.mapper';
+import { SplitsService } from '../splits/splits.service';
 import { TransactionsRepository } from '../transactions/transactions.repository';
 import type { CurrentUser } from '../users/users.service';
 
@@ -89,6 +89,7 @@ export class PortfolioService {
     private readonly accounts: AccountsService,
     private readonly transactions: TransactionsRepository,
     private readonly prices: MarketPricesService,
+    private readonly splits: SplitsService,
   ) {}
 
   /**
@@ -98,7 +99,7 @@ export class PortfolioService {
   async accountPortfolio(user: CurrentUser, accountId: string, options: { withPrices?: boolean; today?: string } = {}): Promise<PortfolioView> {
     const account = await this.accounts.get(user, accountId);
     const rows = await this.transactions.listForAccount(user.id, account.id);
-    const state = replayLedger(rows.map(toLedgerEntry));
+    const state = replayLedger(await this.splits.presentEntries(rows));
     const today = options.today ?? new Date().toISOString().slice(0, 10);
 
     const symbols = [...state.positions.keys()];

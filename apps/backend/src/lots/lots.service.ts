@@ -5,7 +5,7 @@ import { isUuid, parseInput } from '../common/validation';
 import { AccountsRepository } from '../accounts/accounts.repository';
 import { daysBetweenDates, heldOverTwelveMonths, replayLedger } from '../ledger/ledger-engine';
 import type { Disposal, LotSelection } from '../ledger/ledger.types';
-import { toLedgerEntry } from '../transactions/transaction.mapper';
+import { SplitsService } from '../splits/splits.service';
 import { TransactionsRepository } from '../transactions/transactions.repository';
 import type { CurrentUser } from '../users/users.service';
 import { listLotsSchema, type ListLotsInput } from './lots.schemas';
@@ -92,6 +92,7 @@ export class LotsService {
   constructor(
     private readonly transactions: TransactionsRepository,
     private readonly accounts: AccountsRepository,
+    private readonly splits: SplitsService,
   ) {}
 
   /**
@@ -113,7 +114,7 @@ export class LotsService {
     }
     if (query.asOf) rows = rows.filter((row) => row.date <= query.asOf!);
     // Leaving a sale out can remove the cash later purchases relied on; that doesn't change lots
-    const state = replayLedger(rows.map(toLedgerEntry), { ignoreCash: query.excludeTransactionId !== undefined });
+    const state = replayLedger(await this.splits.presentEntries(rows), { ignoreCash: query.excludeTransactionId !== undefined });
     const onDate = query.asOf ?? new Date().toISOString().slice(0, 10);
 
     const disposalsByLot = new Map<string, Disposal[]>();
@@ -164,8 +165,16 @@ export class LotsService {
     if (!sale) throw new NotFoundError(`Transaction ${transactionId} not found`);
     if (sale.type !== 'SELL') throw new ValidationError(`Transaction ${transactionId} is a ${sale.type}, not a SELL`);
     const rows = await this.transactions.listForAccount(user.id, sale.accountId);
-    const state = replayLedger(rows.map(toLedgerEntry));
+    const state = replayLedger(await this.splits.presentEntries(rows));
     const disposals = state.disposals.filter((d) => d.sellTransactionId === sale.id);
+
+    // Allocations are in the present share basis; report the sale in that same basis so they reconcile.
+    const presentQuantity = disposals.length
+      ? disposals.reduce((total, d) => total.plus(d.quantity), ZERO)
+      : new MoneyDecimal(sale.quantity!);
+    const presentUnitPrice = presentQuantity.isZero()
+      ? new MoneyDecimal(sale.unitPrice!)
+      : new MoneyDecimal(sale.quantity!).times(sale.unitPrice!).dividedBy(presentQuantity);
 
     const sum = (pick: (d: Disposal) => MoneyDecimal) => fmt(disposals.reduce((total, d) => total.plus(pick(d)), ZERO));
     return {
@@ -175,8 +184,8 @@ export class LotsService {
       currency: sale.currency!,
       date: sale.date,
       lotSelection: sale.lotSelection ?? 'FIFO',
-      quantity: fmt(new MoneyDecimal(sale.quantity!)),
-      unitPrice: fmt(new MoneyDecimal(sale.unitPrice!)),
+      quantity: fmt(presentQuantity),
+      unitPrice: fmt(presentUnitPrice),
       fees: fmt(new MoneyDecimal(sale.fees!)),
       total: fmt(new MoneyDecimal(sale.total!)),
       allocations: disposals.map((d) => {

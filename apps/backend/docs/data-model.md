@@ -119,6 +119,12 @@ shared, store-first price history: market data, not per user, keyed by
 `(symbol, source)`. Closes are stored as traded (`adjustment = 'AS_TRADED'`).
 See [market-prices.md](market-prices.md).
 
+`security_splits` and `security_symbol_aliases` hold stock splits per
+instrument (verified or provider-reported) and ticker changes: market data,
+shared by every user. The ledger is replayed in the present share basis with
+them, and valuations convert to each date's basis. Transactions are never
+rewritten. See [stock-splits.md](stock-splits.md).
+
 ## Derived state: replayed, never stored
 
 Cash per currency, lots (parcels), holdings, cost bases, realized gains and

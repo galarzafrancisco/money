@@ -49,6 +49,15 @@ const holdingSchema = z.object({
     isMock: z.boolean().nullable(),
     note: z.string().nullable(),
   }),
+  split: z
+    .object({
+      basis: z.literal('VALUATION_DATE').describe('quantity, lots and price.close are in the valuation date\'s share basis'),
+      factor: decimalOut('Cumulative split factor from the valuation date\'s basis to the present one (1: no split since)'),
+      adjustedQuantity: decimalOut('quantity × factor: the same holding in today\'s share basis'),
+      adjustedClose: decimalOut('price.close ÷ factor: the split-adjusted close').nullable(),
+    })
+    .nullable()
+    .describe('Null on snapshots written before splits were modelled'),
   lots: z.array(z.object({ lotId: z.string(), acquiredOn: z.string(), quantity: decimalOut(), costBase: decimalOut(), marketValue: decimalOut().nullable() })),
 });
 
@@ -99,6 +108,20 @@ export const valuationHistoryResultSchema = apiSchema(
     symbol: z.string().nullable(),
     fx: fxView,
     days: z.array(valuationDaySchema),
+    splits: z
+      .array(
+        z.object({
+          symbol: z.string(),
+          instrument: z.string(),
+          effectiveDate: z.string(),
+          numerator: decimalOut(),
+          denominator: decimalOut(),
+          ratio: decimalOut(),
+          provenance: z.string(),
+          source: z.string(),
+        }),
+      )
+      .describe('Splits of the symbols in scope effective within the range: quantity steps up and close steps down by ratio, value does not'),
     notes: z.array(z.string()),
   }),
 );

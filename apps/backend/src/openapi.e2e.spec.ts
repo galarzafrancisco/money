@@ -145,6 +145,9 @@ describe('REST responses match the OpenAPI response schemas', () => {
     await call('get', '/api/valuations?fromDate=2024-01-01&toDate=2024-01-10&baseCurrency=USD');
     await call('get', '/api/valuations/as-of?date=2024-01-05&baseCurrency=USD');
     await call('get', '/api/valuations/as-of?date=2024-01-05&baseCurrency=USD&fxRates=AUD:0.65');
+    await call('get', '/api/valuations?fromDate=2024-01-01&toDate=2024-01-10&include=holdings');
+    await call('get', '/api/stock-splits?symbol=TSLA&fromDate=2020-01-01');
+    await call('get', '/api/stock-splits/adjustment?symbol=TSLA&date=2020-08-28');
 
     await call('delete', `/api/transfers/${transfer.id}`);
     await call('delete', `/api/transactions/${withdrawal.id}`);

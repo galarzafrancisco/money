@@ -166,9 +166,12 @@ describe('store-first price history and as-of valuations', () => {
       expect(revised).toEqual([{ d: '2025-06-05' }]);
     });
 
-    it('flags a split that happened while the holding was held', async () => {
-      expect((await holding(tokenA, '2025-06-04', 'SPLT')).price.note).toBeNull();
-      expect((await holding(tokenA, '2025-06-05', 'SPLT')).price.note).toMatch(/SPLT split 2:1 on 2025-06-05, while held/);
+    it('applies a split the provider reports while the holding was held, and names it', async () => {
+      // Recorded today, so in today's basis: 4 shares now were 2 before the 2:1 split
+      expect(await holding(tokenA, '2025-06-04', 'SPLT')).toMatchObject({ quantity: '2', split: { factor: '2', adjustedQuantity: '4' }, price: { note: null } });
+      const after = await holding(tokenA, '2025-06-05', 'SPLT');
+      expect(after).toMatchObject({ quantity: '4', split: { factor: '1', adjustedQuantity: '4' } });
+      expect(after.price.note).toMatch(/SPLT split 2:1 on 2025-06-05 while held/);
     });
 
     it('answers as-of from the snapshot, and reconstructs the same values on demand when it is out of date', async () => {
