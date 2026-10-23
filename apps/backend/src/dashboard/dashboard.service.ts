@@ -81,6 +81,7 @@ export type DashboardView = {
     id: string;
     name: string;
     type: AccountType;
+    source: 'manual' | 'up';
     subaccounts: number;
     /** The account plus all its subaccounts */
     totals: TotalsView;
