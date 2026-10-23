@@ -147,4 +147,99 @@ describe('transaction search', () => {
     const bad = await callTool(t, mcpA, 'search_transactions', { minAmount: '10' });
     expect(bad.isError).toBe(true);
   });
+
+  describe('manual accounts and mixed sources', () => {
+    let tokenC: string;
+    let mcpC: string;
+    let manual: any;
+    let other: any;
+    let upAccount: any;
+    let matchedManual: any;
+    const getC = (query: string, expected = 200) => t.http.get(`/api/search/transactions?${query}`).set('Authorization', `Bearer ${tokenC}`).expect(expected).then((r) => r.body);
+    const post = (token: string, path: string, body: object) => t.http.post(path).set('Authorization', `Bearer ${token}`).send(body).expect(201).then((r) => r.body);
+
+    beforeAll(async () => {
+      tokenC = await t.token({ subject: 'tsearch-c' });
+      mcpC = await t.token({ subject: 'tsearch-c', audience: 'http://money.test/mcp' });
+      manual = await post(tokenC, '/api/accounts', { name: 'Cash book', reportingCurrency: 'AUD' });
+      other = await post(tokenC, '/api/accounts', { name: 'Second book', reportingCurrency: 'AUD' });
+      const dep = (accountId: string, body: object) => post(tokenC, `/api/accounts/${accountId}/transactions`, body);
+      await dep(manual.id, { type: 'DEPOSIT', date: '2025-01-10', currency: 'AUD', amount: '500', description: 'Salary' });
+      await dep(manual.id, { type: 'WITHDRAWAL', date: '2025-02-10', currency: 'AUD', amount: '80', description: 'Rent share' });
+      await dep(manual.id, { type: 'DEPOSIT', date: '2025-02-20', currency: 'USD', amount: '80', description: 'Gadget' });
+      matchedManual = await dep(manual.id, { type: 'WITHDRAWAL', date: '2025-03-05', currency: 'AUD', amount: '42', description: 'Lunch recorded by hand' });
+      await dep(other.id, { type: 'DEPOSIT', date: '2025-01-11', currency: 'AUD', amount: '7', description: 'Other book' });
+
+      const upToken = 'up:user:tsearch-c-token-abcdefgh';
+      const { accountIds } = up.addCustomer(upToken);
+      up.addTransaction(upToken, { accountId: accountIds[0], description: 'Cafe Lunch', amountInBaseUnits: -4200, createdAt: '2025-03-05T02:00:00Z', emit: false });
+      up.addTransaction(upToken, { accountId: accountIds[0], description: 'Bakery', amountInBaseUnits: -800, createdAt: '2025-02-10T02:00:00Z', emit: false });
+      await t.http.post('/api/up/connection').set('Authorization', `Bearer ${tokenC}`).send({ token: upToken }).expect(201);
+      const all = (await t.http.get('/api/up/accounts?visibility=all').set('Authorization', `Bearer ${tokenC}`).expect(200)).body as any[];
+      upAccount = all.find((x) => x.upId === accountIds[0]);
+      const upTx = (await t.http.get(`/api/up/transactions?upAccountId=${upAccount.id}&visibility=all&toDate=2025-12-31`).set('Authorization', `Bearer ${tokenC}`).expect(200)).body;
+      const lunch = (upTx.items ?? upTx).find((x: any) => x.description === 'Cafe Lunch');
+      await t.http.put(`/api/up/transactions/${lunch.id}/match`).set('Authorization', `Bearer ${tokenC}`).send({ transactionId: matchedManual.id }).expect(200);
+    });
+
+    it('searches a manual account by id with signed cash amounts and dates', async () => {
+      const r = await getC(`accountIds=${manual.id}&currency=AUD`);
+      expect(r.items.map((i: any) => [i.date, i.amount, i.direction, i.source, i.type])).toEqual([
+        ['2025-03-05', '-42', 'out', 'manual', 'WITHDRAWAL'],
+        ['2025-02-10', '-80', 'out', 'manual', 'WITHDRAWAL'],
+        ['2025-01-10', '500', 'in', 'manual', 'DEPOSIT'],
+      ]);
+      expect(r.items[0]).toMatchObject({ merchant: null, merchantKey: null, note: 'Lunch recorded by hand', status: 'SETTLED', accountId: manual.id });
+      expect(r.summary.byCurrency).toEqual([{ currency: 'AUD', count: 3, moneyOut: '122', moneyIn: '500', net: '378' }]);
+    });
+
+    it('applies amount, direction, date, text and currency filters to manual rows', async () => {
+      const q = `accountIds=${manual.id}`;
+      expect((await getC(`${q}&currency=AUD&minAmount=80&maxAmount=80`)).items.map((i: any) => i.amount)).toEqual(['-80']);
+      expect((await getC(`${q}&currency=USD&minAmount=80`)).items.map((i: any) => i.note)).toEqual(['Gadget']);
+      expect((await getC(`${q}&direction=in`)).items.map((i: any) => i.note)).toEqual(['Gadget', 'Salary']);
+      expect((await getC(`${q}&fromDate=2025-02-10&toDate=2025-02-10&currency=AUD`)).items.map((i: any) => i.note)).toEqual(['Rent share']);
+      expect((await getC(`${q}&text=SALARY`)).items).toHaveLength(1);
+      expect((await getC(`${q}&status=HELD`)).items).toEqual([]);
+    });
+
+    it('lists a manual transaction matched to an Up one only once, as the Up row', async () => {
+      const r = await getC(`accountIds=${manual.id},${upAccount.id}&currency=AUD&toDate=2025-12-31`);
+      expect(r.items.map((i: any) => [i.date.slice(0, 10), i.source, i.amount])).toEqual([
+        ['2025-03-05', 'up', '-42'],
+        ['2025-02-10', 'up', '-8'],
+        ['2025-02-10', 'manual', '-80'],
+        ['2025-01-10', 'manual', '500'],
+      ]);
+      expect(r.summary.totalCount).toBe(4);
+      // Without the Up account in scope the manual record stands on its own
+      expect((await getC(`accountIds=${manual.id}&currency=AUD`)).items.map((i: any) => i.amount)).toContain('-42');
+    });
+
+    it('pages mixed sources without gaps or repeats', async () => {
+      const seen: string[] = [];
+      let offset: number | null = 0;
+      while (offset !== null) {
+        const page: any = await getC(`accountIds=${manual.id},${other.id},${upAccount.id}&currency=AUD&toDate=2025-12-31&limit=2&offset=${offset}`);
+        seen.push(...page.items.map((i: any) => i.id));
+        offset = page.nextOffset;
+      }
+      expect(seen).toHaveLength(5);
+      expect(new Set(seen).size).toBe(5);
+    });
+
+    it('keeps merchant filters Up-only and searches all accounts by default', async () => {
+      const m = await getC('merchantKey=up:bakery&visibility=all&toDate=2025-12-31');
+      expect(m.items.map((i: any) => i.source)).toEqual(['up']);
+      expect((await getC('visibility=all&currency=AUD&toDate=2025-12-31')).summary.totalCount).toBe(5);
+    });
+
+    it('is available over MCP and isolates manual accounts between users', async () => {
+      const r = await callTool(t, mcpC, 'search_transactions', { accountIds: [manual.id], direction: 'in', currency: 'AUD' });
+      expect(r.isError).toBe(false);
+      expect(r.data.items.map((i: any) => i.amount)).toEqual(['500']);
+      await get(tokenA, `accountIds=${manual.id}`, 404);
+      expect((await get(tokenA, 'visibility=all&currency=AUD')).items.every((i: any) => i.source === 'up')).toBe(true);
+    });
+  });
 });

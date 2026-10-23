@@ -41,7 +41,7 @@ const timezone = z
   }, { message: 'must be an IANA time zone such as Australia/Sydney or UTC' });
 
 export const searchTransactionsShape = {
-  accountIds: idList.optional().describe('Up account IDs (from search_accounts) to search; REST: comma-separated. Listed accounts are searched even when hidden. Omit to search every account allowed by visibility.'),
+  accountIds: idList.optional().describe('Account IDs (manual or Up, from search_accounts) to search; REST: comma-separated. Listed accounts are searched even when hidden. Omit to search every account allowed by visibility.'),
   visibility: z.enum(['visible', 'hidden', 'all']).optional().describe('Which imported Up accounts to search when no accountIds are given: visible (default), hidden or all'),
   merchantKey: z.string().regex(/^up:[a-z0-9-]+$/).optional().describe('Exact merchant, a merchantKey from search_merchants. Preferred over merchant.'),
   merchant: z.string().trim().min(1).max(100).optional().describe('One-shot alternative to merchantKey: a merchant name, matched like search_merchants (spelling variants and typos match, so similar merchants can be included; the response lists matchedMerchants). Merchant filters only cover purchases, never transfers between your own accounts.'),

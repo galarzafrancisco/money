@@ -58,13 +58,26 @@ The work is one grouped query over distinct labels, so large histories are cheap
 `SearchService.transactions`). Everything is filtered, sorted and paged in the
 database; clients never download history to scan it.
 
-**Scope.** Imported Up transactions only (live, not deleted). Manual ledger
-transactions have no merchant field and stay in `list_transactions`. A manual
-transaction matched to an Up one records the same event; only the Up side is
-searched, so nothing is counted twice (`reconciliation` shows the link).
-Accounts: `accountIds` (comma-separated in REST) are searched even when hidden;
-otherwise `visibility` (REST `visible`, MCP `all`). Another user's or unknown
-account ID answers `404`.
+**Scope.** Imported Up transactions (live, not deleted) and manual cash-flow
+transactions: deposits, withdrawals, buys, sells, dividends and (with
+`transfers=include|only`) transfer legs. FX conversions and gain/loss entries
+have no single cash amount and are not searched. Manual `amount` is the signed
+cash effect (withdrawal and buy negative; deposit, sell and dividend net
+positive). Manual rows carry `source: "manual"`, `type`, a plain `YYYY-MM-DD`
+`date` (no timezone), `status: "SETTLED"`, `merchant: null` and their
+description as `note`. Merchant filters and `status=HELD` therefore return Up
+rows only. A manual transaction matched to an Up transaction in the searched
+scope records the same event and is not listed: only the Up row is, so nothing
+is counted twice (`reconciliation` shows the link). If the Up account is not in
+scope, the manual record is listed normally.
+Accounts: `accountIds` (comma-separated in REST) take manual or Up IDs from
+`search_accounts`, and Up accounts are searched even when hidden. Without
+`accountIds`, every manual account plus the Up accounts allowed by `visibility`
+(REST `visible`, MCP `all`) are searched. Another user's or unknown account ID
+answers `404`.
+Ordering across sources: newest local day first (Up timestamps are read in
+`timezone`), Up before manual on the same day. Each source is paged in the
+database for the first `offset + limit` rows and then merged.
 
 **Filters** (all optional, combined with AND):
 - `merchantKey` (exact, from `search_merchants`) or `merchant` (a name,
@@ -82,7 +95,7 @@ account ID answers `404`.
 - `status` (`HELD`/`SETTLED`), `transfers` (`exclude` default, `include`, `only`).
 
 **Result.** `items` newest first (ties by id) with `amount` signed, `direction`,
-`currency`, `status`, `merchant`, `merchantKey`, `note`, `source: "up"`,
+`currency`, `status`, `merchant`, `merchantKey`, `note`, `source` (`up`/`manual`), `type`,
 `reconciliation`; `nextOffset` (null on the last page; `limit` default 50, max
 200); `summary.totalCount` and `summary.byCurrency[]` (`moneyOut`, `moneyIn`,
 `net`) over all matches; `matchedMerchants`; `scope`.
@@ -91,6 +104,7 @@ account ID answers `404`.
 - "When did I buy at Guzman?": `search_merchants {q:"guzman"}` then
   `search_transactions {merchantKey:"up:guzman-y-gomez", direction:"out"}`.
 - BBQ retailer AUD 100-400 in 2021-2024: `{merchantKey, currency:"AUD", minAmount:"100", maxAmount:"400", fromDate:"2021-01-01", toDate:"2024-12-31", direction:"out"}`.
+- A manual account's withdrawals: `{accountIds:[manualId], direction:"out", currency:"AUD"}`.
 - Spending account, Jan-Mar 2025, withdrawals AUD 50-200: `{accountIds:[id], fromDate:"2025-01-01", toDate:"2025-03-31", timezone:"Australia/Sydney", direction:"out", currency:"AUD", minAmount:"50", maxAmount:"200"}`.
 - Last 12 months of spend: use `summary.byCurrency[].moneyOut`; do not add up pages.
 

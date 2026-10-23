@@ -5,6 +5,8 @@ import { AccountsService } from '../accounts/accounts.service';
 import { UpRepository } from '../up/up.repository';
 import type { CurrentUser } from '../users/users.service';
 import { dec, fmt } from '../common/decimal';
+import { TransactionsRepository } from '../transactions/transactions.repository';
+import type { TransactionEntity } from '../transactions/transaction.entity';
 import type { UpTransactionEntity } from '../up/up.entities';
 import { MATCH_RANK, matchName, merchantKeyOf, prepareQuery, type MatchType } from './name-match';
 import { searchAccountsSchema, searchMerchantsSchema, searchTransactionsSchema } from './search.schemas';
@@ -44,6 +46,7 @@ export class SearchService {
   constructor(
     private readonly upRepo: UpRepository,
     private readonly accounts: AccountsService,
+    private readonly transactionsRepo: TransactionsRepository,
   ) {}
 
   async merchants(user: CurrentUser, input: unknown) {
@@ -103,30 +106,45 @@ export class SearchService {
   }
 
   /**
-   * Transaction search over imported Up transactions, filtered, sorted and
-   * paged in the database. Manual ledger transactions have no merchant and are
-   * not included; those matched to an Up transaction are the same event and are
-   * not listed twice because only the Up side is searched.
+   * Transaction search, filtered, sorted and paged in the database. Searches
+   * imported Up transactions and manual cash-flow transactions (deposits,
+   * withdrawals, buys, sells, dividends, transfer legs). Merchant filters are
+   * Up-only because manual rows have no merchant. A manual transaction matched
+   * to an Up transaction in scope is the same event and is listed once, as the
+   * Up row. The two sources are each paged in the database for the first
+   * `offset + limit` rows and merged newest first.
    */
   async transactions(user: CurrentUser, input: unknown) {
     const query = parseInput(searchTransactionsSchema, input);
     const upAccounts = await this.upRepo.listAccounts(user.id, null);
-    let scope = upAccounts;
+    const manualAccounts = await this.accounts.list(user);
+    let upScope = upAccounts;
+    let manualScope = manualAccounts.map((a) => a.id);
     if (query.accountIds && query.accountIds.length > 0) {
-      scope = query.accountIds.map((id) => {
-        const one = isUuid(id) ? upAccounts.find((a) => a.id === id) : undefined;
-        if (!one) throw new NotFoundError(`Up account ${id} not found`); // also for another user's account
-        return one;
-      });
+      upScope = [];
+      manualScope = [];
+      for (const id of query.accountIds) {
+        const up = isUuid(id) ? upAccounts.find((a) => a.id === id) : undefined;
+        if (up) {
+          upScope.push(up);
+          continue;
+        }
+        const manual = isUuid(id) ? manualAccounts.find((a) => a.id === id) : undefined;
+        if (!manual) throw new NotFoundError(`Account ${id} not found`); // also for another user's account
+        manualScope.push(manual.id);
+      }
     } else {
       const visibility = query.visibility ?? 'visible';
-      scope = upAccounts.filter((a) => visibility === 'all' || (visibility === 'visible') === a.visible);
+      upScope = upAccounts.filter((a) => visibility === 'all' || (visibility === 'visible') === a.visible);
     }
-    const scopeIds = scope.map((a) => a.id);
+    const scopeIds = upScope.map((a) => a.id);
+    const hasMerchant = Boolean(query.merchantKey || query.merchant);
+    // Manual rows have no merchant and are always settled
+    if (hasMerchant || query.status === 'HELD') manualScope = [];
 
     let descriptions: string[] | undefined;
     let matchedMerchants: { merchantKey: string; name: string }[] | null = null;
-    if (query.merchantKey || query.merchant) {
+    if (hasMerchant) {
       const labels = await this.upRepo.merchantLabels(user.id, scopeIds);
       const prepared = query.merchant ? prepareQuery(query.merchant) : null;
       const hits = labels.filter((l) => (query.merchantKey ? merchantKeyOf(l.description) === query.merchantKey : matchName(prepared!, l.description) !== null));
@@ -143,7 +161,11 @@ export class SearchService {
     const limit = query.limit ?? 50;
     const offset = query.offset ?? 0;
     const timezone = query.timezone ?? 'UTC';
-    const result = await this.upRepo.searchTransactions(user.id, {
+    const transfers = descriptions ? 'exclude' : (query.transfers ?? 'exclude');
+    const direction = query.direction === 'any' ? undefined : query.direction;
+    const both = scopeIds.length > 0 && manualScope.length > 0;
+    const window = both ? { limit: offset + limit, offset: 0 } : { limit, offset };
+    const upResult = await this.upRepo.searchTransactions(user.id, {
       upAccountIds: scopeIds,
       descriptions,
       text: query.text,
@@ -153,27 +175,55 @@ export class SearchService {
       minAmount: query.minAmount,
       maxAmount: query.maxAmount,
       currency: query.currency,
-      direction: query.direction === 'any' ? undefined : query.direction,
+      direction,
       status: query.status,
-      transfers: descriptions ? 'exclude' : (query.transfers ?? 'exclude'),
-      limit,
-      offset,
+      transfers,
+      ...window,
     });
+    const manualResult = await this.transactionsRepo.searchCash(user.id, {
+      accountIds: manualScope,
+      excludeMatchedByUpAccountIds: scopeIds,
+      text: query.text,
+      fromDate: query.fromDate,
+      toDate: query.toDate,
+      minAmount: query.minAmount,
+      maxAmount: query.maxAmount,
+      currency: query.currency,
+      direction,
+      transfers,
+      ...window,
+    });
+
+    type Entry = { item: ReturnType<typeof searchItem> | ReturnType<typeof manualSearchItem>; day: string };
+    const upItems: Entry[] = upResult.rows.map((t) => ({ item: searchItem(t), day: localDay(t.upCreatedAt, timezone) }));
+    const manualItems: Entry[] = manualResult.rows.map((r) => ({ item: manualSearchItem(r.entity, r.cash), day: r.entity.date }));
+    // Both lists are already newest first; merge, newest local day first, Up before manual on a tie
+    const merged: Entry[] = [];
+    let i = 0;
+    let j = 0;
+    while (i < upItems.length || j < manualItems.length) {
+      if (j >= manualItems.length || (i < upItems.length && upItems[i].day >= manualItems[j].day)) merged.push(upItems[i++]);
+      else merged.push(manualItems[j++]);
+    }
+    const items = (both ? merged.slice(offset, offset + limit) : merged).map((m) => m.item);
+
+    const totals = new Map<string, { count: number; out: ReturnType<typeof dec>; in: ReturnType<typeof dec> }>();
+    for (const c of [...upResult.byCurrency, ...manualResult.byCurrency]) {
+      const cur = totals.get(c.currency) ?? { count: 0, out: dec('0'), in: dec('0') };
+      totals.set(c.currency, { count: cur.count + c.count, out: cur.out.plus(dec(c.moneyOut)), in: cur.in.plus(dec(c.moneyIn)) });
+    }
+    const totalCount = upResult.total + manualResult.total;
     return {
-      items: result.rows.map(searchItem),
-      nextOffset: offset + limit < result.total ? offset + limit : null,
+      items,
+      nextOffset: offset + limit < totalCount ? offset + limit : null,
       summary: {
-        totalCount: result.total,
-        byCurrency: result.byCurrency.map((c) => ({
-          currency: c.currency,
-          count: c.count,
-          moneyOut: fmt(dec(c.moneyOut)),
-          moneyIn: fmt(dec(c.moneyIn)),
-          net: fmt(dec(c.moneyIn).minus(dec(c.moneyOut))),
-        })),
+        totalCount,
+        byCurrency: [...totals]
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([currency, c]) => ({ currency, count: c.count, moneyOut: fmt(c.out), moneyIn: fmt(c.in), net: fmt(c.in.minus(c.out)) })),
       },
       matchedMerchants,
-      scope: { accountCount: scopeIds.length, timezone },
+      scope: { accountCount: scopeIds.length + manualScope.length, timezone },
     };
   }
 
@@ -231,7 +281,33 @@ function searchItem(t: UpTransactionEntity) {
     transfer: t.transferUpAccountId !== null,
     note: t.message,
     source: 'up' as const,
+    type: null,
     reconciliation: t.matchedTransactionId ? ('matched' as const) : ('unmatched' as const),
     matchedTransactionId: t.matchedTransactionId,
+  };
+}
+
+/** The local calendar day (YYYY-MM-DD) of an instant in an IANA time zone */
+function localDay(at: Date, timezone: string): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(at);
+}
+
+function manualSearchItem(t: TransactionEntity, cash: string) {
+  return {
+    id: t.id,
+    accountId: t.accountId,
+    merchant: null,
+    merchantKey: null,
+    date: t.date,
+    amount: fmt(dec(cash)),
+    direction: dec(cash).isNegative() ? ('out' as const) : ('in' as const),
+    currency: t.currency ?? '',
+    status: 'SETTLED' as const,
+    transfer: t.transferId !== null,
+    note: t.description,
+    source: 'manual' as const,
+    type: t.type,
+    reconciliation: null,
+    matchedTransactionId: null,
   };
 }
