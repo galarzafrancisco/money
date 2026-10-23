@@ -12,6 +12,7 @@ import { DashboardCategories } from '../features/dashboard/DashboardCategories';
 import { DashboardLayout } from '../features/dashboard/DashboardLayout';
 import { DashboardOverview } from '../features/dashboard/DashboardOverview';
 import { DashboardShares } from '../features/dashboard/DashboardShares';
+import { SearchPage } from '../features/search/SearchPage';
 import { AccountLots } from '../features/transactions/AccountLots';
 import { AccountTransactions } from '../features/transactions/AccountTransactions';
 import { RecordActivityPage } from '../features/transactions/RecordActivityPage';
@@ -42,6 +43,7 @@ export function AppRoutes() {
         <Route path="settings" element={<AccountSettings />} />
         <Route path="record" element={<RecordActivityPage />} />
       </Route>
+      <Route path="/search" element={<SearchPage />} />
       <Route path="/categories" element={<CategoriesPage />} />
       <Route path="/connections" element={<ConnectionsPage />} />
       <Route path="*" element={<EmptyState title="Page not found" action={<ButtonLink to="/accounts">Go to accounts</ButtonLink>} />} />
