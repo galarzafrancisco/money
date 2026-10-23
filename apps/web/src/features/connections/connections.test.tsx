@@ -78,4 +78,21 @@ describe('connections', () => {
     await user.click(screen.getByRole('button', { name: 'Confirm disconnect' }));
     expect(client.up.disconnectUp).toHaveBeenCalledWith({ purge: false });
   });
+
+  it('opens an Up account and lists its imported transactions', async () => {
+    const client = fakeClient();
+    client.up.listUpAccounts.mockResolvedValue([upAccount({ visible: true })]);
+    client.up.listUpTransactions.mockResolvedValue({
+      items: [{
+        id: 't1', upId: 'ut1', accountId: 'ua1', status: 'SETTLED', description: 'Corner Cafe', message: null, transactionType: null, currency: 'AUD', amount: '-4.50',
+        foreignCurrency: null, foreignAmount: null, categoryId: null, transferUpAccountId: null, createdAt: '2026-10-01T01:00:00Z', settledAt: '2026-10-01T02:00:00Z',
+        deletedAt: null, matchedTransactionId: null, reconciliation: 'unmatched', source: 'up',
+      }],
+      nextOffset: null,
+    });
+    renderApp('/accounts/up/ua1', { client });
+    expect(await screen.findByText('Corner Cafe')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Emergency fund' })).toBeInTheDocument();
+    expect(client.up.listUpTransactions).toHaveBeenCalledWith(expect.objectContaining({ accountId: 'ua1' }));
+  });
 });

@@ -18,6 +18,7 @@ export const queryKeys = {
   categories: ['categories'] as const,
   upStatus: ['up', 'status'] as const,
   upAccounts: (visibility: string) => ['up', 'accounts', visibility] as const,
+  upTransactions: (accountId: string, offset: number) => ['up', 'transactions', accountId, offset] as const,
   holdingCategories: (accountId: string) => ['holding-categories', accountId] as const,
 };
 
