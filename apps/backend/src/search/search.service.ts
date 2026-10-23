@@ -4,8 +4,10 @@ import { isUuid, parseInput } from '../common/validation';
 import { AccountsService } from '../accounts/accounts.service';
 import { UpRepository } from '../up/up.repository';
 import type { CurrentUser } from '../users/users.service';
+import { dec, fmt } from '../common/decimal';
+import type { UpTransactionEntity } from '../up/up.entities';
 import { MATCH_RANK, matchName, merchantKeyOf, prepareQuery, type MatchType } from './name-match';
-import { searchAccountsSchema, searchMerchantsSchema } from './search.schemas';
+import { searchAccountsSchema, searchMerchantsSchema, searchTransactionsSchema } from './search.schemas';
 
 export type MerchantResult = {
   merchantKey: string;
@@ -100,6 +102,81 @@ export class SearchService {
     return paginate(results, query.limit, query.offset);
   }
 
+  /**
+   * Transaction search over imported Up transactions, filtered, sorted and
+   * paged in the database. Manual ledger transactions have no merchant and are
+   * not included; those matched to an Up transaction are the same event and are
+   * not listed twice because only the Up side is searched.
+   */
+  async transactions(user: CurrentUser, input: unknown) {
+    const query = parseInput(searchTransactionsSchema, input);
+    const upAccounts = await this.upRepo.listAccounts(user.id, null);
+    let scope = upAccounts;
+    if (query.accountIds && query.accountIds.length > 0) {
+      scope = query.accountIds.map((id) => {
+        const one = isUuid(id) ? upAccounts.find((a) => a.id === id) : undefined;
+        if (!one) throw new NotFoundError(`Up account ${id} not found`); // also for another user's account
+        return one;
+      });
+    } else {
+      const visibility = query.visibility ?? 'visible';
+      scope = upAccounts.filter((a) => visibility === 'all' || (visibility === 'visible') === a.visible);
+    }
+    const scopeIds = scope.map((a) => a.id);
+
+    let descriptions: string[] | undefined;
+    let matchedMerchants: { merchantKey: string; name: string }[] | null = null;
+    if (query.merchantKey || query.merchant) {
+      const labels = await this.upRepo.merchantLabels(user.id, scopeIds);
+      const prepared = query.merchant ? prepareQuery(query.merchant) : null;
+      const hits = labels.filter((l) => (query.merchantKey ? merchantKeyOf(l.description) === query.merchantKey : matchName(prepared!, l.description) !== null));
+      descriptions = hits.map((l) => l.description);
+      const byKey = new Map<string, { name: string; count: number }>();
+      for (const l of hits) {
+        const key = merchantKeyOf(l.description);
+        const cur = byKey.get(key);
+        if (!cur || l.transactionCount > cur.count) byKey.set(key, { name: l.description.trim(), count: l.transactionCount });
+      }
+      matchedMerchants = [...byKey].map(([merchantKey, v]) => ({ merchantKey, name: v.name })).sort((a, b) => a.merchantKey.localeCompare(b.merchantKey));
+    }
+
+    const limit = query.limit ?? 50;
+    const offset = query.offset ?? 0;
+    const timezone = query.timezone ?? 'UTC';
+    const result = await this.upRepo.searchTransactions(user.id, {
+      upAccountIds: scopeIds,
+      descriptions,
+      text: query.text,
+      fromDate: query.fromDate,
+      toDate: query.toDate,
+      timezone,
+      minAmount: query.minAmount,
+      maxAmount: query.maxAmount,
+      currency: query.currency,
+      direction: query.direction === 'any' ? undefined : query.direction,
+      status: query.status,
+      transfers: descriptions ? 'exclude' : (query.transfers ?? 'exclude'),
+      limit,
+      offset,
+    });
+    return {
+      items: result.rows.map(searchItem),
+      nextOffset: offset + limit < result.total ? offset + limit : null,
+      summary: {
+        totalCount: result.total,
+        byCurrency: result.byCurrency.map((c) => ({
+          currency: c.currency,
+          count: c.count,
+          moneyOut: fmt(dec(c.moneyOut)),
+          moneyIn: fmt(dec(c.moneyIn)),
+          net: fmt(dec(c.moneyIn).minus(dec(c.moneyOut))),
+        })),
+      },
+      matchedMerchants,
+      scope: { accountCount: scopeIds.length, timezone },
+    };
+  }
+
   async accountsSearch(user: CurrentUser, input: unknown) {
     const query = parseInput(searchAccountsSchema, input);
     const visibility = query.visibility ?? 'visible';
@@ -138,4 +215,23 @@ export class SearchService {
 
 function paginate<T>(all: T[], limit = 20, offset = 0): { items: T[]; nextOffset: number | null } {
   return { items: all.slice(offset, offset + limit), nextOffset: offset + limit < all.length ? offset + limit : null };
+}
+
+function searchItem(t: UpTransactionEntity) {
+  return {
+    id: t.id,
+    accountId: t.upAccountId,
+    merchant: t.description,
+    merchantKey: merchantKeyOf(t.description),
+    date: t.upCreatedAt.toISOString(),
+    amount: fmt(dec(t.amount)),
+    direction: dec(t.amount).isNegative() ? ('out' as const) : ('in' as const),
+    currency: t.currency,
+    status: t.status,
+    transfer: t.transferUpAccountId !== null,
+    note: t.message,
+    source: 'up' as const,
+    reconciliation: t.matchedTransactionId ? ('matched' as const) : ('unmatched' as const),
+    matchedTransactionId: t.matchedTransactionId,
+  };
 }
