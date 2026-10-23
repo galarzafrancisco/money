@@ -81,6 +81,7 @@ export type DashboardView = {
     id: string;
     name: string;
     type: AccountType;
+    source: 'manual' | 'up';
     subaccounts: number;
     /** The account plus all its subaccounts */
     totals: TotalsView;
@@ -134,7 +135,7 @@ export class DashboardService {
   async dashboard(user: CurrentUser, input: DashboardOptionsInput = {}, now = new Date()): Promise<DashboardView> {
     const options = parseInput(dashboardOptionsSchema, input);
     const display = options.displayCurrency;
-    const ctx = await this.reports.valuationContext(user, { valuation: 'market' });
+    const ctx = await this.reports.valuationContext(user, { valuation: 'market', visibility: 'visible' });
     const { items } = ctx;
 
     // ── FX: manual rates first, then the provider; any gap disables conversion
@@ -197,6 +198,7 @@ export class DashboardService {
         id: node.account.id,
         name: node.account.name,
         type: node.account.type,
+        source: ctx.sourceOf(node.account.id),
         subaccounts: node.children.length,
         totals: accountTotals,
         percentOfTotal: percentOf(accountTotals.converted?.total, grand),

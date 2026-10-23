@@ -12,6 +12,8 @@ import { MarketPricesService, type QuoteResult } from '../market-prices/market-p
 import { toLedgerEntry } from '../transactions/transaction.mapper';
 import { TransactionEntity } from '../transactions/transaction.entity';
 import { TransactionsRepository } from '../transactions/transactions.repository';
+import type { UpAccountEntity } from '../up/up.entities';
+import { UpRepository } from '../up/up.repository';
 import type { CurrentUser } from '../users/users.service';
 import {
   assertRatesCover,
@@ -34,6 +36,8 @@ export type ItemView = {
   accountId: string;
   /** Account names from the top-level account down, e.g. ["Up!", "Emergency Fund"] */
   accountPath: string[];
+  /** Where the account comes from: recorded by hand, or imported from Up (a snapshot balance) */
+  source: 'manual' | 'up';
   kind: 'cash' | 'holding';
   symbol: string | null;
   currency: string;
@@ -50,6 +54,7 @@ export type AccountReportNode = {
   id: string;
   name: string;
   type: AccountEntity['type'];
+  source: 'manual' | 'up';
   parentAccountId: string | null;
   level: number;
   /** The account's own category (null = inherits) */
@@ -98,6 +103,7 @@ export class ReportsService {
     private readonly accounts: AccountsRepository,
     private readonly categories: CategoriesRepository,
     private readonly transactions: TransactionsRepository,
+    private readonly upRepo: UpRepository,
     private readonly prices: MarketPricesService,
   ) {}
 
@@ -108,6 +114,7 @@ export class ReportsService {
       id: node.account.id,
       name: node.account.name,
       type: node.account.type,
+      source: ctx.sourceOf(node.account.id),
       parentAccountId: node.account.parentAccountId,
       level: node.level,
       categoryId: node.account.categoryId,
@@ -151,12 +158,23 @@ export class ReportsService {
    * account in scope, so each is counted exactly once.
    */
   async valuationContext(user: CurrentUser, options: ReportOptions) {
-    const [accounts, categoryList, holdingRows, rows] = await Promise.all([
+    const [manualAccounts, upAccounts, categoryList, holdingRows, rows] = await Promise.all([
       this.accounts.list(user.id),
+      this.upRepo.listAccounts(user.id, null),
       this.categories.list(user.id),
       this.categories.listHoldingCategories(user.id),
       this.transactions.list(user.id, {}),
     ]);
+    // Imported Up accounts are top-level cash accounts whose balance is the
+    // one Up last reported. Hidden ones stay out of the default view but are
+    // always reachable by ID.
+    // Accounts Up stopped listing keep their last balance but are stale, so they
+    // are left out everywhere (as account groups do), even by ID.
+    const upInScope = upAccounts.filter((u) => !u.removedAt && (options.rootAccountId !== undefined || options.visibility === 'all' || (options.visibility === 'visible') === u.visible));
+    const upAsAccounts = upInScope.map(upToAccount);
+    const upBalances = new Map(upInScope.map((u) => [u.id, u]));
+    const sourceOf = (accountId: string): 'manual' | 'up' => (upBalances.has(accountId) ? 'up' : 'manual');
+    const accounts = [...manualAccounts, ...upAsAccounts];
     const byId = new Map(accounts.map((a) => [a.id, a]));
 
     let rootId: string | null = null;
@@ -174,7 +192,11 @@ export class ReportsService {
       list.push(row);
       rowsByAccount.set(row.accountId, list);
     }
-    const states = inScope.map((account) => ({ account, state: replayLedger((rowsByAccount.get(account.id) ?? []).map(toLedgerEntry)) }));
+    const states = inScope.map((account) => {
+      const imported = upBalances.get(account.id);
+      if (imported) return { account, state: { cash: new Map([[imported.currency, dec(imported.balance)]]), positions: new Map<string, never>() } };
+      return { account, state: replayLedger((rowsByAccount.get(account.id) ?? []).map(toLedgerEntry)) };
+    });
 
     const warnings: string[] = [];
     const symbols = [...new Set(states.flatMap(({ state }) => [...state.positions.keys()]))];
@@ -249,6 +271,7 @@ export class ReportsService {
       return {
         accountId: item.accountId,
         accountPath: pathOf(item.accountId),
+        source: sourceOf(item.accountId),
         kind: item.kind,
         symbol: item.symbol,
         currency: item.currency,
@@ -271,6 +294,22 @@ export class ReportsService {
       totals: totalsOf(items, fx),
       warnings,
     };
-    return { allAccounts: accounts, byId, items, fx, rootId, categoryList, holdingCategories, categoryRef, itemView, pathOf, envelope };
+    return { allAccounts: accounts, byId, items, fx, rootId, categoryList, holdingCategories, categoryRef, itemView, pathOf, sourceOf, envelope };
   }
+}
+
+/** An imported Up account as a top-level cash account, for the shared reporting path */
+function upToAccount(u: UpAccountEntity): AccountEntity {
+  return Object.assign(new AccountEntity(), {
+    id: u.id,
+    userId: u.userId,
+    parentAccountId: null,
+    categoryId: u.categoryId,
+    name: u.displayName,
+    type: 'CASH' as const,
+    reportingCurrency: u.currency,
+    description: null,
+    createdAt: u.upCreatedAt,
+    updatedAt: u.updatedAt,
+  });
 }

@@ -73,6 +73,7 @@ export const dashboardSchema = apiSchema(
         id: z.string(),
         name: z.string(),
         type: z.enum(ACCOUNT_TYPES),
+        source: z.enum(['manual', 'up']).describe('Where the balance comes from: the manual ledger or an imported Up snapshot'),
         subaccounts: z.number().int(),
         totals: reportTotalsSchema.describe('The account plus all its subaccounts'),
         percentOfTotal: percent('Share of total tracked assets'),

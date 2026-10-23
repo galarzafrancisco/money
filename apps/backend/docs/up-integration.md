@@ -160,6 +160,12 @@ client (`money.up.*`, tag `up`). Rules:
    lists. **Per-account show all**: `listUpTransactions({ accountId })` returns
    that account's transactions even when it is hidden. Hidden accounts keep
    syncing; never present them as missing or deleted.
+   **Reports and dashboard** (accounts report, categories report, dashboard,
+   account groups) include imported accounts as top-level cash accounts at the
+   balance Up last reported, once each. `visibility` (`visible` by default,
+   `hidden`, `all`) selects which imported accounts; `rootAccountId` resolves
+   any imported account, hidden or not. Imported balances are never added to a
+   manual account's own figures.
 4. **Provenance.** Label every imported record with its `source: "up"` and
    keep it visually distinct from manual accounts and transactions. Do not add
    imported amounts to manual balances, holdings or gains. `reconciliation` is

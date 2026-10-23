@@ -31,6 +31,7 @@ export function reportNode(a: Account, own: { currency: string; total: string }[
     id: a.id,
     name: a.name,
     type: a.type,
+    source: 'manual',
     parentAccountId: a.parentAccountId,
     level: 0,
     categoryId: a.categoryId,

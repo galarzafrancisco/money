@@ -31,8 +31,8 @@ function dashboardFixture({ display = 'AUD', converted = true }: { display?: str
       { category: null, totals: totals(c, '600', [{ currency: 'AUD', total: '300' }, { currency: 'USD', total: '200' }]), percentOfTotal: pct('60'), items: [] },
     ],
     accounts: [
-      { id: 'bank', name: 'Bank', type: 'CASH', subaccounts: 1, totals: totals(c, '400', [{ currency: 'AUD', total: '400' }]), percentOfTotal: pct('40') },
-      { id: 'super', name: 'AustralianSuper', type: 'SUPERANNUATION', subaccounts: 0, totals: totals(c, '300', [{ currency: 'AUD', total: '300' }]), percentOfTotal: pct('30') },
+      { id: 'bank', name: 'Bank', type: 'CASH', source: 'manual', subaccounts: 1, totals: totals(c, '400', [{ currency: 'AUD', total: '400' }]), percentOfTotal: pct('40') },
+      { id: 'super', name: 'AustralianSuper', type: 'SUPERANNUATION', source: 'manual', subaccounts: 0, totals: totals(c, '300', [{ currency: 'AUD', total: '300' }]), percentOfTotal: pct('30') },
     ],
     shares: {
       totals: totals(c, '300', [{ currency: 'USD', total: '200' }], '300'),
