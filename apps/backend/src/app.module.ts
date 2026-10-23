@@ -41,6 +41,7 @@ import { ValuationScheduler } from './valuations/valuation.scheduler';
 import { ValuationsRepository } from './valuations/valuations.repository';
 import { ValuationsService } from './valuations/valuations.service';
 import { UsersService } from './users/users.service';
+import { SearchService } from './search/search.service';
 import { UpApiClient } from './up/up-api.client';
 import { UpSyncService, UP_API_CLIENT } from './up/up-sync.service';
 import { UpVault } from './up/up-vault';
@@ -110,6 +111,7 @@ export class AppModule implements NestModule {
         AccountsRepository,
         AccountsService,
         UnifiedAccountsService,
+        SearchService,
         AccountGroupsRepository,
         AccountGroupsService,
         CategoriesRepository,

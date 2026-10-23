@@ -17,6 +17,8 @@ import { tickerSymbol } from '../common/validation';
 import { listLotsSchema } from '../lots/lots.schemas';
 import { LotsService } from '../lots/lots.service';
 import { MarketPricesService } from '../market-prices/market-prices.service';
+import { searchAccountsShape, searchMerchantsShape } from '../search/search.schemas';
+import { SearchService } from '../search/search.service';
 import { PortfolioService } from '../portfolio/portfolio.service';
 import { reportOptionsSchema } from '../reports/reports.schemas';
 import { ReportsService } from '../reports/reports.service';
@@ -70,6 +72,7 @@ export class MoneyMcpServerFactory {
     private readonly dashboard: DashboardService,
     private readonly up: UpService,
     private readonly accountGroups: AccountGroupsService,
+    private readonly search: SearchService,
   ) {}
 
   build(user: CurrentUser): McpServer {
@@ -100,6 +103,12 @@ export class MoneyMcpServerFactory {
     tool('whoami', 'The Money user the current access token maps to', read, {}, async () => user);
 
     tool('list_accounts', 'List all your accounts and subaccounts, manual and Up-imported alike (flat; parentAccountId links a subaccount to its parent). Each has source ("manual" or "up"), visible and balances (cash per currency). Imported Up accounts are accounts like any other, including hidden ones (pass visibility to narrow). get_accounts_report gives the tree with holdings and valuations.', read, listUnifiedAccountsShape, (args) => this.allAccounts.list(user, args));
+    tool('search_accounts', 'Find accounts by partial name, any case (manual and Up-imported, hidden Up accounts included by default here). Returns canonical IDs, source, type, currency and visibility, plus matchType. Similarly named accounts stay separate results. Paginated: use nextOffset.', read, searchAccountsShape, (args) =>
+      this.search.accountsSearch(user, { visibility: 'all', ...args }),
+    );
+    tool('search_merchants', 'Find merchants in imported Up transactions by partial name, any case. Returns merchantKey (pass it to list_up_transactions to find the purchases), a display name, aliases and matchType; only "exact" is the same name, other retailers with similar names are separate results to confirm with the user. Hidden Up accounts are searched by default here. Paginated.', read, searchMerchantsShape, (args) =>
+      this.search.merchants(user, { visibility: 'all', ...args }),
+    );
     tool('get_account', 'Get one account (manual or imported from Up) with its cash balances', read, { accountId }, ({ accountId }) => this.allAccounts.get(user, accountId));
     tool(
       'create_account',

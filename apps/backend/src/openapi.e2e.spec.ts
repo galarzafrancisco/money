@@ -172,6 +172,9 @@ describe('REST responses match the OpenAPI response schemas', () => {
     await call('put', `/api/up/transactions/${upTransactions.items[0].id}/match`, { transactionId: deposit.id });
     await call('delete', `/api/up/transactions/${upTransactions.items[0].id}/match`);
     await call('get', '/api/up/sync-runs');
+    const found = await call('get', '/api/search/merchants?q=a&visibility=all');
+    expect(Array.isArray(found.items)).toBe(true);
+    await call('get', '/api/search/accounts?q=manual&visibility=all');
     await call('delete', '/api/up/connection?purge=true');
 
     const all = routes.map((r) => r.options!.operationId).sort();
