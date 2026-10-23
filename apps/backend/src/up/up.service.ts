@@ -219,6 +219,7 @@ export class UpService {
     const rows = await this.repo.listTransactions(user.id, {
       upAccountIds: scope.map((account) => account.id),
       descriptions,
+      excludeTransfers: query.merchantKey ? true : undefined,
       status: query.status,
       fromDate: query.fromDate,
       toDate: query.toDate,

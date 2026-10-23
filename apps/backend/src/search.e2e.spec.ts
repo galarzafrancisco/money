@@ -33,6 +33,8 @@ describe('merchant and account search', () => {
     const buy = (accountId: string, description: string, amountInBaseUnits = -1000) => up.addTransaction(tokenUp, { accountId, description, amountInBaseUnits, emit: false });
     const first = accountIds[0];
     for (const d of ['BBQs In The Hills', 'BBQs In The Hills', 'Barbeques Galore', 'BARBEQUES GALORE 4411', 'Barbeques Galore Pty Ltd', 'Guzman y Gomez', 'GUZMAN Y GOMEZ', 'Woolworths']) buy(first, d);
+    // A transfer sharing a merchant's description must never surface through that merchant's key
+    up.addTransaction(tokenUp, { accountId: first, description: 'Barbeques Galore', amountInBaseUnits: -5000, transferAccountId: accountIds[1], emit: false });
     await as(tokenA).post('/api/up/connection', { token: tokenUp }).expect(201);
     const all = (await as(tokenA).get('/api/up/accounts?visibility=all').expect(200)).body as any[];
     spending = all.find((a) => a.upId === first);
@@ -82,7 +84,7 @@ describe('merchant and account search', () => {
       const key = 'up:barbeques-galore';
       const page = (await as(tokenA).get(`/api/up/transactions?visibility=all&merchantKey=${key}`).expect(200)).body;
       expect(page.items).toHaveLength(3);
-      expect(page.items.every((x: any) => /galore/i.test(x.description))).toBe(true);
+      expect(page.items.every((x: any) => /galore/i.test(x.description) && x.transferUpAccountId == null)).toBe(true);
       expect((await as(tokenA).get('/api/up/transactions?visibility=all&merchantKey=up:nobody').expect(200)).body.items).toEqual([]);
       await as(tokenA).get('/api/up/transactions?merchantKey=not-a-key').expect(400);
     });

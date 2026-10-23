@@ -13,6 +13,8 @@ export type UpTransactionFilter = {
   reconciliation?: 'matched' | 'unmatched';
   /** Exact Up descriptions (already resolved from a merchant key) */
   descriptions?: string[];
+  /** Exclude transfers between the user's own Up accounts (merchant-key handoff only matches merchant rows) */
+  excludeTransfers?: boolean;
   limit: number;
   offset: number;
 };
@@ -169,6 +171,7 @@ export class UpRepository {
       if (filter.descriptions.length === 0) return [];
       query.andWhere('t.description IN (:...descriptions)', { descriptions: filter.descriptions });
     }
+    if (filter.excludeTransfers) query.andWhere('t.transfer_up_account_id IS NULL');
     if (filter.status) query.andWhere('t.status = :status', { status: filter.status });
     if (filter.fromDate) query.andWhere('t.up_created_at >= :from', { from: `${filter.fromDate}T00:00:00Z` });
     if (filter.toDate) query.andWhere('t.up_created_at < :to', { to: new Date(Date.parse(`${filter.toDate}T00:00:00Z`) + 86_400_000) });
