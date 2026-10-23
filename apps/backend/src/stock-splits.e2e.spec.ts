@@ -179,6 +179,28 @@ describe('stock splits', () => {
     expect(portfolio.holdings).toEqual([]);
   });
 
+  it('reports a sale recorded before a later split in the same basis as its allocations', async () => {
+    const other = await t.token({ subject: 'splits-c' });
+    const account = (await as(other).post('/api/accounts', { name: 'Pre-split sale' }).expect(201)).body;
+    const post = (body: Record<string, unknown>) => as(other).post(`/api/accounts/${account.id}/transactions`, body);
+    await post({ type: 'DEPOSIT', date: '2025-06-02', currency: 'USD', amount: '10000' }).expect(201);
+    const buy = (await post({ type: 'BUY', date: '2025-06-03', symbol: 'PRES', currency: 'USD', quantity: '10', unitPrice: '100', fees: '0' }).expect(201)).body;
+    const sell = (await post({ type: 'SELL', date: '2025-06-04', symbol: 'PRES', currency: 'USD', quantity: '10', unitPrice: '110', fees: '0' }).expect(201)).body;
+    await ds.query(`UPDATE transactions SET created_at = '2025-06-04T15:00:00Z' WHERE id IN ($1, $2)`, [buy.id, sell.id]);
+    t.prices.setClose('PRES', '2025-06-03', '100');
+    t.prices.setClose('PRES', '2025-06-04', '110');
+    t.prices.setClose('PRES', '2025-06-05', '55');
+    t.prices.addSplit('PRES', { date: '2025-06-05', numerator: '2', denominator: '1' });
+    await job.runOnce(at('2025-06-07T08:00:00Z'));
+
+    const body = (await as(other).get(`/api/transactions/${sell.id}/allocations`).expect(200)).body;
+    expect(body.quantity).toBe('20');
+    expect(body.unitPrice).toBe('55');
+    expect(body.totals.quantity).toBe(body.quantity);
+    expect(body.allocations.map((a: { quantity: string }) => a.quantity)).toEqual(['20']);
+    expect(body.total).toBe('1100');
+  });
+
   it('resolves an old ticker to its instrument\'s splits', async () => {
     await ds.query(`INSERT INTO security_symbol_aliases (symbol, instrument, note) VALUES ('TSLAOLD', 'TSLA', 'test alias')`);
     const body = (await as(token).get('/api/stock-splits?symbol=TSLAOLD').expect(200)).body;

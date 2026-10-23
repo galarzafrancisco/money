@@ -168,6 +168,14 @@ export class LotsService {
     const state = replayLedger(await this.splits.presentEntries(rows));
     const disposals = state.disposals.filter((d) => d.sellTransactionId === sale.id);
 
+    // Allocations are in the present share basis; report the sale in that same basis so they reconcile.
+    const presentQuantity = disposals.length
+      ? disposals.reduce((total, d) => total.plus(d.quantity), ZERO)
+      : new MoneyDecimal(sale.quantity!);
+    const presentUnitPrice = presentQuantity.isZero()
+      ? new MoneyDecimal(sale.unitPrice!)
+      : new MoneyDecimal(sale.quantity!).times(sale.unitPrice!).dividedBy(presentQuantity);
+
     const sum = (pick: (d: Disposal) => MoneyDecimal) => fmt(disposals.reduce((total, d) => total.plus(pick(d)), ZERO));
     return {
       saleTransactionId: sale.id,
@@ -176,8 +184,8 @@ export class LotsService {
       currency: sale.currency!,
       date: sale.date,
       lotSelection: sale.lotSelection ?? 'FIFO',
-      quantity: fmt(new MoneyDecimal(sale.quantity!)),
-      unitPrice: fmt(new MoneyDecimal(sale.unitPrice!)),
+      quantity: fmt(presentQuantity),
+      unitPrice: fmt(presentUnitPrice),
       fees: fmt(new MoneyDecimal(sale.fees!)),
       total: fmt(new MoneyDecimal(sale.total!)),
       allocations: disposals.map((d) => {
