@@ -51,3 +51,63 @@ other than `exact` as a candidate to confirm.
 Order: matchType, then transaction count, then name, then key. Pages use
 `limit` (default 20, max 100) and `offset`; `nextOffset` is null on the last page.
 The work is one grouped query over distinct labels, so large histories are cheap.
+
+## Transaction search
+
+`GET /api/search/transactions` and MCP `search_transactions` (same
+`SearchService.transactions`). Everything is filtered, sorted and paged in the
+database; clients never download history to scan it.
+
+**Scope.** Imported Up transactions (live, not deleted) and manual cash-flow
+transactions: deposits, withdrawals, buys, sells, dividends and (with
+`transfers=include|only`) transfer legs. FX conversions and gain/loss entries
+have no single cash amount and are not searched. Manual `amount` is the signed
+cash effect (withdrawal and buy negative; deposit, sell and dividend net
+positive). Manual rows carry `source: "manual"`, `type`, a plain `YYYY-MM-DD`
+`date` (no timezone), `status: "SETTLED"`, `merchant: null` and their
+description as `note`. Merchant filters and `status=HELD` therefore return Up
+rows only. A manual transaction matched to an Up transaction in the searched
+scope records the same event and is not listed: only the Up row is, so nothing
+is counted twice (`reconciliation` shows the link). If the Up account is not in
+scope, the manual record is listed normally.
+Accounts: `accountIds` (comma-separated in REST) take manual or Up IDs from
+`search_accounts`, and Up accounts are searched even when hidden. Without
+`accountIds`, every manual account plus the Up accounts allowed by `visibility`
+(REST `visible`, MCP `all`) are searched. Another user's or unknown account ID
+answers `404`.
+Ordering across sources: newest local day first (Up timestamps are read in
+`timezone`), Up before manual on the same day. Each source is paged in the
+database for the first `offset + limit` rows and then merged.
+
+**Filters** (all optional, combined with AND):
+- `merchantKey` (exact, from `search_merchants`) or `merchant` (a name,
+  matched like `search_merchants`; the response's `matchedMerchants` lists what
+  it resolved to, so check it). Not both. Merchant filters never return
+  transfers.
+- `text`: substring of description, raw text or message. Separate from merchants.
+- `fromDate`/`toDate`: inclusive local dates, either may be omitted, read in
+  `timezone` (IANA, default `UTC`; use `Australia/Sydney` for statement dates).
+  Items carry a UTC timestamp in `date`.
+- `minAmount`/`maxAmount`: inclusive, on the **absolute** amount, so a refund of
+  50 and a purchase of 50 both match 50. They require `currency`; currencies
+  are never compared or summed together. Use `direction` (`out` money leaving,
+  `in` refunds/deposits, `any`) to separate purchases from refunds.
+- `status` (`HELD`/`SETTLED`), `transfers` (`exclude` default, `include`, `only`).
+
+**Result.** `items` newest first (ties by id) with `amount` signed, `direction`,
+`currency`, `status`, `merchant`, `merchantKey`, `note`, `source` (`up`/`manual`), `type`,
+`reconciliation`; `nextOffset` (null on the last page; `limit` default 50, max
+200); `summary.totalCount` and `summary.byCurrency[]` (`moneyOut`, `moneyIn`,
+`net`) over all matches; `matchedMerchants`; `scope`.
+
+**Agent recipes.**
+- "When did I buy at Guzman?": `search_merchants {q:"guzman"}` then
+  `search_transactions {merchantKey:"up:guzman-y-gomez", direction:"out"}`.
+- BBQ retailer AUD 100-400 in 2021-2024: `{merchantKey, currency:"AUD", minAmount:"100", maxAmount:"400", fromDate:"2021-01-01", toDate:"2024-12-31", direction:"out"}`.
+- A manual account's withdrawals: `{accountIds:[manualId], direction:"out", currency:"AUD"}`.
+- Spending account, Jan-Mar 2025, withdrawals AUD 50-200: `{accountIds:[id], fromDate:"2025-01-01", toDate:"2025-03-31", timezone:"Australia/Sydney", direction:"out", currency:"AUD", minAmount:"50", maxAmount:"200"}`.
+- Last 12 months of spend: use `summary.byCurrency[].moneyOut`; do not add up pages.
+
+Limits: offset paging (a sync between pages can shift rows); the merchant key
+limits above apply; the date predicates use the `up_created_at` index only
+partly, which is fine at tens of thousands of rows per user.

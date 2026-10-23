@@ -19,6 +19,31 @@ export type UpTransactionFilter = {
   offset: number;
 };
 
+export type UpTransactionSearchFilter = {
+  upAccountIds: string[];
+  /** Exact descriptions; empty array matches nothing */
+  descriptions?: string[];
+  text?: string;
+  fromDate?: string;
+  toDate?: string;
+  timezone: string;
+  /** Absolute amount bounds, decimal strings; the currency filter applies with them */
+  minAmount?: string;
+  maxAmount?: string;
+  currency?: string;
+  direction?: 'out' | 'in';
+  status?: 'HELD' | 'SETTLED';
+  transfers: 'exclude' | 'include' | 'only';
+  limit: number;
+  offset: number;
+};
+
+export type UpTransactionSearchResult = {
+  rows: UpTransactionEntity[];
+  total: number;
+  byCurrency: { currency: string; count: number; moneyOut: string; moneyIn: string }[];
+};
+
 export type MerchantLabelRow = { description: string; transactionCount: number; firstAt: Date; lastAt: Date };
 
 export type UpAccountValues = {
@@ -179,6 +204,48 @@ export class UpRepository {
     if (filter.reconciliation === 'matched') query.andWhere('t.matched_transaction_id IS NOT NULL');
     if (filter.reconciliation === 'unmatched') query.andWhere('t.matched_transaction_id IS NULL');
     return query.orderBy('t.up_created_at', 'DESC').addOrderBy('t.id', 'DESC').take(filter.limit).skip(filter.offset).getMany();
+  }
+
+  /**
+   * Filtered, newest-first page plus totals over every match, all in the database.
+   * Live (not deleted) transactions only. Dates are read as local dates in `timezone`.
+   */
+  async searchTransactions(userId: string, filter: UpTransactionSearchFilter, manager: EntityManager = this.uow.manager): Promise<UpTransactionSearchResult> {
+    if (filter.upAccountIds.length === 0 || filter.descriptions?.length === 0) return { rows: [], total: 0, byCurrency: [] };
+    const query = manager
+      .getRepository(UpTransactionEntity)
+      .createQueryBuilder('t')
+      .where('t.user_id = :userId', { userId })
+      .andWhere('t.deleted_at IS NULL')
+      .andWhere('t.up_account_id IN (:...accountIds)', { accountIds: filter.upAccountIds });
+    if (filter.descriptions) query.andWhere('t.description IN (:...descriptions)', { descriptions: filter.descriptions });
+    if (filter.text) {
+      const like = `%${filter.text.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+      query.andWhere(`(t.description ILIKE :like OR t.raw_text ILIKE :like OR t.message ILIKE :like)`, { like });
+    }
+    if (filter.fromDate) query.andWhere(`t.up_created_at >= (CAST(:from AS timestamp) AT TIME ZONE :tz)`, { from: `${filter.fromDate}T00:00:00`, tz: filter.timezone });
+    if (filter.toDate) query.andWhere(`t.up_created_at < (CAST(CAST(:to AS date) + 1 AS timestamp) AT TIME ZONE :tz)`, { to: filter.toDate, tz: filter.timezone });
+    if (filter.currency) query.andWhere('t.currency = :currency', { currency: filter.currency });
+    if (filter.minAmount !== undefined) query.andWhere('ABS(t.amount) >= CAST(:min AS numeric)', { min: filter.minAmount });
+    if (filter.maxAmount !== undefined) query.andWhere('ABS(t.amount) <= CAST(:max AS numeric)', { max: filter.maxAmount });
+    if (filter.direction === 'out') query.andWhere('t.amount < 0');
+    if (filter.direction === 'in') query.andWhere('t.amount > 0');
+    if (filter.status) query.andWhere('t.status = :status', { status: filter.status });
+    if (filter.transfers === 'exclude') query.andWhere('t.transfer_up_account_id IS NULL');
+    if (filter.transfers === 'only') query.andWhere('t.transfer_up_account_id IS NOT NULL');
+
+    const rows = await query.clone().orderBy('t.up_created_at', 'DESC').addOrderBy('t.id', 'DESC').take(filter.limit).skip(filter.offset).getMany();
+    const totals = await query
+      .clone()
+      .select('t.currency', 'currency')
+      .addSelect('COUNT(*)', 'count')
+      .addSelect('COALESCE(SUM(CASE WHEN t.amount < 0 THEN -t.amount ELSE 0 END), 0)', 'out')
+      .addSelect('COALESCE(SUM(CASE WHEN t.amount > 0 THEN t.amount ELSE 0 END), 0)', 'in')
+      .groupBy('t.currency')
+      .orderBy('t.currency', 'ASC')
+      .getRawMany<{ currency: string; count: string; out: string; in: string }>();
+    const byCurrency = totals.map((r) => ({ currency: r.currency, count: Number(r.count), moneyOut: String(r.out), moneyIn: String(r.in) }));
+    return { rows, total: byCurrency.reduce((sum, r) => sum + r.count, 0), byCurrency };
   }
 
   /**

@@ -175,6 +175,8 @@ describe('REST responses match the OpenAPI response schemas', () => {
     const found = await call('get', '/api/search/merchants?q=a&visibility=all');
     expect(Array.isArray(found.items)).toBe(true);
     await call('get', '/api/search/accounts?q=manual&visibility=all');
+    const txSearch = await call('get', '/api/search/transactions?visibility=all&limit=2');
+    expect(txSearch.summary.totalCount).toBeGreaterThan(0);
     await call('delete', '/api/up/connection?purge=true');
 
     const all = routes.map((r) => r.options!.operationId).sort();

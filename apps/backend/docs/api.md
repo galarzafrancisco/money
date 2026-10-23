@@ -149,6 +149,7 @@ none of them takes a user argument.
 | `get_accounts_report`, `get_categories_report` | `GET /api/reports/accounts`, `/categories` (`fxRates` as an object) |
 | `get_dashboard` | `GET /api/dashboard` (`fxRates` as an object) |
 | `get_valuation_history`, `get_valuation_as_of`, `get_valuation_status`, `request_valuation_recompute` | The valuation routes (`fxRates` as an object) |
+| `search_transactions` | `GET /api/search/transactions` (see [search.md](search.md#transaction-search)) |
 | `search_merchants`, `search_accounts` | `GET /api/search/merchants`, `/accounts` (see [search.md](search.md)); hand `merchantKey` to `list_up_transactions` |
 | `get_market_price` | `GET /api/market-prices/:symbol` |
 

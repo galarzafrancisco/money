@@ -3,8 +3,8 @@ import { Protected } from '../auth/protected.decorator';
 import { AuthenticatedUser } from '../auth/user.guard';
 import { ApiRoute } from '../openapi/api-route.decorator';
 import type { CurrentUser } from '../users/users.service';
-import { accountPageSchema, merchantPageSchema } from './search.responses';
-import { searchAccountsSchema, searchMerchantsSchema } from './search.schemas';
+import { accountPageSchema, merchantPageSchema, transactionSearchPageSchema } from './search.responses';
+import { searchAccountsSchema, searchMerchantsSchema, searchTransactionsSchema } from './search.schemas';
 import { SearchService } from './search.service';
 
 /** Read-only name discovery over the signed-in user's own data. Contract: apps/backend/docs/search.md */
@@ -23,5 +23,11 @@ export class SearchController {
   @ApiRoute({ tag: 'search', operationId: 'searchAccounts', summary: 'Find accounts, manual and imported from Up, by partial name', query: searchAccountsSchema, response: accountPageSchema })
   accounts(@AuthenticatedUser() user: CurrentUser, @Query() query: Record<string, string>) {
     return this.search.accountsSearch(user, query);
+  }
+
+  @Get('transactions')
+  @ApiRoute({ tag: 'search', operationId: 'searchTransactions', summary: 'Search imported Up transactions by merchant, account, date and amount, newest first, with totals over all matches', query: searchTransactionsSchema, response: transactionSearchPageSchema })
+  transactions(@AuthenticatedUser() user: CurrentUser, @Query() query: Record<string, string>) {
+    return this.search.transactions(user, query);
   }
 }
