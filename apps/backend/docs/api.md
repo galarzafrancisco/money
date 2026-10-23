@@ -109,6 +109,15 @@ and FX semantics, are described in [categories.md](categories.md).
 
 Logical account groups (your own buckets over Money and Up accounts, one group per account) are described in [account-groups.md](account-groups.md): `/api/account-groups` and the `*_account_group(s)` MCP tools.
 
+Name search (read-only, resolve a name to an ID before querying transactions):
+`GET /api/search/merchants?q=` and `GET /api/search/accounts?q=`, with the MCP tools
+`search_merchants` and `search_accounts`. Both use `SearchService`, take `limit`
+(default 20, max 100) and `offset`, and order deterministically. A merchant result
+carries a `merchantKey` (`up:<slug>`); pass it as `merchantKey` to
+`GET /api/up/transactions` (or `list_up_transactions`) to list that merchant's
+transactions. An account result's `id` works with `get_account` and
+`list_transactions`. Matching, key and visibility rules: [search.md](search.md).
+
 Example:
 
 ```http
@@ -140,6 +149,7 @@ none of them takes a user argument.
 | `get_accounts_report`, `get_categories_report` | `GET /api/reports/accounts`, `/categories` (`fxRates` as an object) |
 | `get_dashboard` | `GET /api/dashboard` (`fxRates` as an object) |
 | `get_valuation_history`, `get_valuation_as_of`, `get_valuation_status`, `request_valuation_recompute` | The valuation routes (`fxRates` as an object) |
+| `search_merchants`, `search_accounts` | `GET /api/search/merchants`, `/accounts` (see [search.md](search.md)); hand `merchantKey` to `list_up_transactions` |
 | `get_market_price` | `GET /api/market-prices/:symbol` |
 
 Results are JSON text content. Domain errors come back as `isError: true` with
