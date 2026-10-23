@@ -1,6 +1,7 @@
 import type { Dashboard } from '@money/client';
+import { useState } from 'react';
 import { Link } from 'react-router';
-import { AllocationBar, Amount, Badge, Card, Heading, Loading, Stack, Table, Text, TrendLine, type Column } from '../../ui';
+import { AllocationBar, Amount, Badge, Card, Heading, Loading, SegmentedControl, Stack, Table, Text, TrendLine, type Column } from '../../ui';
 import { ACCOUNT_TYPE_LABELS } from '../accounts/data';
 import { ApiErrorCallout } from '../shared/ApiErrorCallout';
 import { CurrencyLines } from '../shared/CurrencyTotals';
@@ -130,21 +131,53 @@ export function DashboardOverview() {
 }
 
 /** Daily share-holdings value from the valuation history: not cash, not total wealth */
+type HistoryRange = '3m' | '1y' | '3y' | 'all';
+const RANGE_MONTHS: Record<Exclude<HistoryRange, 'all'>, number> = { '3m': 3, '1y': 12, '3y': 36 };
+
+function rangeStart(range: HistoryRange, lastDate: string): string | null {
+  if (range === 'all') return null;
+  const d = new Date(`${lastDate}T00:00:00Z`);
+  d.setUTCMonth(d.getUTCMonth() - RANGE_MONTHS[range]);
+  return d.toISOString().slice(0, 10);
+}
+
 function ShareHistory({ dashboard }: { dashboard: Dashboard }) {
+  const [range, setRange] = useState<HistoryRange>('all');
   const history = useShareHistory(dashboard);
   const title = 'Share holdings over time';
   if (history.isPending) return <Card title={title}><Loading label="Loading history…" /></Card>;
   if (history.isError) return <Card title={title}><ApiErrorCallout error={history.error} title="History is unavailable right now" /></Card>;
-  const days = history.data.days.filter((d) => d.totals.converted);
-  const unconverted = history.data.days.length - days.length;
+  const inRange = history.data.days.length === 0 ? [] : history.data.days.filter((d) => {
+    const start = rangeStart(range, history.data.days[history.data.days.length - 1].date);
+    return start === null || d.date >= start;
+  });
+  const days = inRange.filter((d) => d.totals.converted);
+  const unconverted = inRange.length - days.length;
+  const periodControl = (
+    <SegmentedControl
+      legend="Period"
+      name="share-history-range"
+      value={range}
+      onChange={setRange}
+      options={[
+        { value: '3m', label: '3 months' },
+        { value: '1y', label: '1 year' },
+        { value: '3y', label: '3 years' },
+        { value: 'all', label: 'All' },
+      ]}
+    />
+  );
   if (days.length < 2) {
     return (
       <Card title={title}>
-        <Text size="sm" tone="muted">
-          {unconverted > 0
-            ? `No exchange rate to ${dashboard.displayCurrency} for ${unconverted} day(s), so they cannot be charted.`
-            : 'Not enough daily valuations yet. They are worked out after each market close.'}
-        </Text>
+        <Stack gap={2}>
+          {range !== 'all' && periodControl}
+          <Text size="sm" tone="muted">
+            {unconverted > 0
+              ? `No exchange rate to ${dashboard.displayCurrency} for ${unconverted} day(s), so they cannot be charted.`
+              : 'Not enough daily valuations yet. They are worked out after each market close.'}
+          </Text>
+        </Stack>
       </Card>
     );
   }
@@ -155,6 +188,7 @@ function ShareHistory({ dashboard }: { dashboard: Dashboard }) {
   return (
     <Card title={title}>
       <Stack gap={2}>
+        {periodControl}
         <TrendLine
           label={`Share holdings value in ${dashboard.displayCurrency} from ${first.date} to ${last.date}`}
           points={days.map((d) => ({
