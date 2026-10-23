@@ -12,7 +12,8 @@ import type { CurrentUser } from '../users/users.service';
 import { SaleLotAllocationEntity } from './sale-lot-allocation.entity';
 import { TransactionEntity } from './transaction.entity';
 import { TransactionsRepository } from './transactions.repository';
-import { materialize, storedInputFields, toLedgerEntry, toTransactionView, type TransactionFields, type TransactionView } from './transaction.mapper';
+import { SplitsService } from '../splits/splits.service';
+import { materialize, storedInputFields, toTransactionView, type TransactionFields, type TransactionView } from './transaction.mapper';
 import {
   UPDATABLE_FIELDS,
   depositSchema,
@@ -62,6 +63,7 @@ export class TransactionsService {
     private readonly transactions: TransactionsRepository,
     private readonly accounts: AccountsRepository,
     private readonly uow: UnitOfWork,
+    private readonly splits: SplitsService,
   ) {}
 
   /** REST entry point: the body names the type */
@@ -215,7 +217,8 @@ export class TransactionsService {
     change: (rows: TransactionEntity[]) => TransactionEntity[],
   ): Promise<void> {
     const rows = await this.transactions.listForAccount(user.id, accountId, manager);
-    replayLedger(change(rows).map(toLedgerEntry));
+    // In the present share basis, like every other replay (docs/stock-splits.md)
+    replayLedger(await this.splits.presentEntries(change(rows), { manager }));
   }
 }
 

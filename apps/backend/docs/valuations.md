@@ -19,7 +19,9 @@ For each user and **valuation date D**, the job stores:
   - `quantity`, `cost_base` and `lots`, matched by each sale's stored allocations or FIFO (lot id, acquired on, remaining
     quantity, cost base, market value) **as held at the end of D**. The job
     replays the account's ledger up to D, so the quantities are the ones held
-    on D, not today's.
+    on D, not today's. They are in **D's share basis** (splits after D are
+    undone; see [stock-splits.md](stock-splits.md)), with `split_factor`,
+    `split_adjusted_quantity` and `split_adjusted_close` for today's basis.
   - the close used: `close_price`, `price_currency`, `price_date` (the
     trading date of the close), `price_close_time`, `exchange_timezone`,
     `price_source` and `price_is_mock`.
@@ -210,10 +212,13 @@ for store-first lookups, Yahoo's caveats and configuration.
     close (from `currentTradingPeriod`). Early closes (half days) are not
     reflected in `price_close_time`.
   - Yahoo's daily `close` is split-adjusted. The adapter reverses that with
-    Yahoo's split events, so stored closes are **as traded** and match the
-    ledger's recorded quantities. Corporate actions are not modelled: if a
-    split happened while a holding was held, `price.note` says so, and the
-    quantity after it may not match the shares really held.
+    Yahoo's split events, so stored closes are **as traded**. Stock splits
+    are modelled (see [stock-splits.md](stock-splits.md)): each date's
+    quantity and lots are converted to that date's share basis before they
+    are multiplied by its as-traded close, so a split changes quantity and
+    close but not value. `split_factor`, `split_adjusted_quantity` and
+    `split_adjusted_close` record the basis, and `price.note` names a split
+    that happened while the holding was held.
   - Prices in minor units (`GBp`/`GBX` pence, `ZAc`, `ILA`) are converted to
     the major currency (GBP, ZAR, ILS) so they match trades recorded in it.
 

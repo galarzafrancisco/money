@@ -4,7 +4,8 @@ import { randomUUID } from 'node:crypto';
 import { AccountsRepository } from '../accounts/accounts.repository';
 import { APP_CONFIG, type AppConfig } from '../config/env.config';
 import { addDays } from '../market-prices/market-calendar';
-import { toLedgerEntry } from '../transactions/transaction.mapper';
+import { sameSplits } from '../splits/split-math';
+import { SplitsService } from '../splits/splits.service';
 import type { TransactionEntity } from '../transactions/transaction.entity';
 import { TransactionsRepository } from '../transactions/transactions.repository';
 import { requestProgress, selectDueDates } from './due-dates';
@@ -74,6 +75,7 @@ export class ValuationJobService {
     private readonly accounts: AccountsRepository,
     private readonly transactions: TransactionsRepository,
     private readonly prices: PriceHistoryService,
+    private readonly splits: SplitsService,
   ) {}
 
   async runOnce(now: Date = new Date(), options: { userId?: string } = {}): Promise<RunSummary> {
@@ -155,15 +157,26 @@ export class ValuationJobService {
     const accounts = await this.accounts.list(userId);
     const rowsByAccount = new Map<string, TransactionEntity[]>();
     for (const row of rows) rowsByAccount.set(row.accountId, [...(rowsByAccount.get(row.accountId) ?? []), row]);
-    const positions = accounts.map((account) => ({
-      accountId: account.id,
-      byDate: positionsByDate((rowsByAccount.get(account.id) ?? []).map(toLedgerEntry), due),
-    }));
+    // Replayed in the present share basis; holdingsOn converts each date to its own basis
+    const symbols = rows.filter((r) => r.symbol).map((r) => r.symbol!);
+    let splits = await this.splits.index(symbols);
+    const replay = () =>
+      accounts.map((account) => ({
+        accountId: account.id,
+        byDate: positionsByDate(this.splits.presentEntriesWith(rowsByAccount.get(account.id) ?? [], splits, now), due),
+      }));
+    let positions = replay();
     // Each symbol only over the due dates it is held, so closed positions are not looked up past their sale
     const series = await this.prices.getSeriesByRange(priceWindows(positions, due, cfg.maxCarryDays, today), now);
+    // The lookup may have recorded a split the provider reported: replay with it (which dates are held does not change)
+    const latest = await this.splits.index(symbols);
+    if (!sameSplits(splits, latest)) {
+      splits = latest;
+      positions = replay();
+    }
 
     for (const date of due) {
-      const holdings = holdingsOn(positions, date, series, cfg.maxCarryDays);
+      const holdings = holdingsOn(positions, date, series, cfg.maxCarryDays, splits);
       const complete = holdings.every((h) => FINAL_STATUSES.includes(h.priceStatus));
       await this.repo.replaceDay(userId, { date, status: complete ? 'COMPLETE' : 'PARTIAL', priceProvider: this.prices.providerName }, holdings);
       summary.datesComputed++;

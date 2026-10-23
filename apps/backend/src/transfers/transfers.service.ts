@@ -9,7 +9,7 @@ import { UnitOfWork } from '../database/unit-of-work';
 import { replayLedger } from '../ledger/ledger-engine';
 import type { TransferLegType } from '../ledger/ledger.types';
 import { TransactionEntity } from '../transactions/transaction.entity';
-import { toLedgerEntry } from '../transactions/transaction.mapper';
+import { SplitsService } from '../splits/splits.service';
 import { TransactionsRepository } from '../transactions/transactions.repository';
 import type { CurrentUser } from '../users/users.service';
 import { resolveTransfer, type ResolvedTransfer } from './transfer-math';
@@ -69,6 +69,7 @@ export class TransfersService {
     private readonly transactions: TransactionsRepository,
     private readonly accounts: AccountsRepository,
     private readonly uow: UnitOfWork,
+    private readonly splits: SplitsService,
   ) {}
 
   async record(user: CurrentUser, input: CreateTransferInput): Promise<TransferView> {
@@ -221,7 +222,7 @@ export class TransfersService {
     for (const [side, accountId] of [['source', transfer.fromAccountId], ['destination', transfer.toAccountId]] as const) {
       const rows = await this.transactions.listForAccount(user.id, accountId, manager);
       try {
-        replayLedger(change(rows).filter((row) => row.accountId === accountId).map(toLedgerEntry));
+        replayLedger(await this.splits.presentEntries(change(rows).filter((row) => row.accountId === accountId), { manager }));
       } catch (error) {
         if (!(error instanceof LedgerViolationError)) throw error;
         throw new LedgerViolationError(`In the ${side} account: ${error.message}`, {

@@ -3,6 +3,7 @@ import { APP_CONFIG, type AppConfig } from '../config/env.config';
 import { addDays, dateRange, daysBetween, isWeekend } from '../market-prices/market-calendar';
 import { MARKET_PRICE_PROVIDER, type DailyCloseSeries, type MarketPriceProvider } from '../market-prices/market-price.port';
 import { PriceStoreRepository, type StoredSeriesMeta } from '../market-prices/price-store.repository';
+import { SplitsRepository } from '../splits/splits.repository';
 import type { SeriesResult } from './valuation-math';
 import { ValuationsRepository } from './valuations.repository';
 
@@ -40,6 +41,7 @@ export class PriceHistoryService {
     @Inject(APP_CONFIG) private readonly config: AppConfig,
     private readonly store: PriceStoreRepository,
     private readonly valuations: ValuationsRepository,
+    private readonly splits: SplitsRepository,
   ) {}
 
   get providerName(): string {
@@ -110,6 +112,7 @@ export class PriceHistoryService {
           this.logger.warn(`${changed.length} stored close(s) of ${symbol} changed (first ${changed[0]}); re-valuing holders`);
           await this.valuations.requestRecomputeForSymbol(symbol, changed[0]);
         }
+        await this.recordSplits(symbol, series);
       } catch (error) {
         failures.push(error instanceof Error ? error.message : String(error));
         break fetching;
@@ -132,6 +135,21 @@ export class PriceHistoryService {
     if (unknown && !stored) return { series: null };
     // No session stored yet (e.g. a weekend right after listing): an empty series still says the symbol is known
     return { series: stored ?? (fetched ? { ...fetched, splits: [], closes: [] } : null) };
+  }
+
+  /**
+   * Keeps the provider's splits in security_splits (verified rows win). A
+   * new or changed split moves the share basis of every earlier date, so its
+   * holders are re-valued from their first trade.
+   */
+  private async recordSplits(symbol: string, series: DailyCloseSeries): Promise<void> {
+    const { instrument, changed, conflicts } = await this.splits.recordProviderSplits(symbol, series.source, series.splits);
+    for (const c of conflicts) {
+      this.logger.warn(`${c.source} reports a ${c.reported} split of ${c.instrument} on ${c.effectiveDate}, but the verified ratio is ${c.stored}; keeping the verified one`);
+    }
+    if (changed.length === 0) return;
+    this.logger.log(`Recorded ${changed.length} split(s) of ${instrument} from ${series.source} (${changed.join(', ')}); re-valuing holders`);
+    await this.valuations.requestRecomputeForSplit(await this.splits.symbolsOf([instrument]));
   }
 
   /** The parts of from..to outside every stored range */

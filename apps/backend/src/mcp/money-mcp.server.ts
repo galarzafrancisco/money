@@ -33,6 +33,8 @@ import {
   updateTransactionSchema,
   withdrawalShape,
 } from '../transactions/transactions.schemas';
+import { listSplitsSchema, splitAdjustmentSchema } from '../splits/splits.schemas';
+import { SplitsService } from '../splits/splits.service';
 import { TransactionsService } from '../transactions/transactions.service';
 import { createTransferShape, listTransfersShape, updateTransferShape } from '../transfers/transfers.schemas';
 import { TransfersService } from '../transfers/transfers.service';
@@ -73,6 +75,7 @@ export class MoneyMcpServerFactory {
     private readonly up: UpService,
     private readonly accountGroups: AccountGroupsService,
     private readonly search: SearchService,
+    private readonly splits: SplitsService,
   ) {}
 
   build(user: CurrentUser): McpServer {
@@ -360,7 +363,7 @@ export class MoneyMcpServerFactory {
     );
     tool(
       'get_valuation_history',
-      'Daily valuations of your holdings over a date range, for value-over-time charts: per date, what was held at the end of that day valued at that day\'s market close, with totals per currency. include: "holdings" adds each holding with quantity, close used (price.status, tradingDate, source, isMock) and lots. Check price.status and "complete": non-trading days use the last close, pending or missing prices are flagged, not hidden.',
+      'Daily valuations of your holdings over a date range, for value-over-time charts: per date, what was held at the end of that day valued at that day\'s market close, with totals per currency. Stock splits are applied: quantities and closes are in each date\'s own share basis, so a split steps quantity up and close down without changing value; splits lists those effective in the range. include: "holdings" adds each holding with quantity, close used (price.status, tradingDate, source, isMock), split (factor to today\'s basis, adjusted quantity and close) and lots. Check price.status and "complete": non-trading days use the last close, pending or missing prices are flagged, not hidden.',
       read,
       valuationHistorySchema.shape,
       (args) => this.valuations.history(user, args),
@@ -378,6 +381,20 @@ export class MoneyMcpServerFactory {
       read,
       {},
       () => this.valuations.status(user),
+    );
+    tool(
+      'list_stock_splits',
+      'Recorded stock splits (read-only market data): effective date, ratio, provenance (VERIFIED or PROVIDER) and the symbols each applies to. Filter by symbol and effective-date range. Explains steps in quantity and close in get_valuation_history.',
+      read,
+      listSplitsSchema.shape,
+      (args) => this.splits.list(args),
+    );
+    tool(
+      'get_split_adjustment',
+      'Cumulative split factor from a date\'s share basis to today\'s for a symbol, with the splits behind it: today\'s quantity = quantity on date × factor.',
+      read,
+      splitAdjustmentSchema.shape,
+      (args) => this.splits.adjustment(args),
     );
     tool(
       'request_valuation_recompute',

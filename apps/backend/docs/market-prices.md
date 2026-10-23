@@ -82,7 +82,7 @@ valuations and historical FX. They are read from the database first.
 | `market_price_closes` | One close per `(symbol, source, trading_date)`, with `currency`, `exchange_timezone`, `close_time`, `is_mock`, `adjustment`, `fetched_at`, `revised_at` |
 | `market_price_series` | Per `(symbol, source)`: currency, exchange time zone, adjustment, and `covered_from`..`covered_to`, the envelope of the covered ranges |
 | `market_price_coverage` | Per `(symbol, source)`: the disjoint ranges of trading dates known to be stored (touching ranges are merged) |
-| `market_price_splits` | Split events the provider reported |
+| `market_price_splits` | Split events the provider reported (also copied into `security_splits`, see [stock-splits.md](stock-splits.md)) |
 
 These tables hold market data, not personal data. They are shared by all
 users. Holdings, transactions and snapshots stay per user.
@@ -152,11 +152,11 @@ nothing stored, the symbol has an error and its holdings are `MISSING`.
   splits after it. It then multiplies the adjustment back out. Stored closes
   are `AS_TRADED`: the price that actually traded on each date. `adjclose`
   (dividend-adjusted) is never used.
-- **Splits while held.** Corporate actions are not modelled in the ledger. If
-  a split happened while a holding was held, the quantity recorded before it no
-  longer matches the shares held after it. The valuation flags this in
-  `price.note` ("… split 10:1 on …, while held …"). It does not change any
-  numbers.
+- **Splits while held.** Splits are modelled (see
+  [stock-splits.md](stock-splits.md)). The splits Yahoo reports are copied into
+  `security_splits` (verified rows win), and valuations convert each date's
+  holdings to that date's share basis, so the as-traded close values them
+  correctly.
 - **Floating-point noise.** Yahoo's bar closes are single-precision floats
   (121.79 arrives as 121.79000091552734). They are rounded to 7 significant
   digits before they are stored as `numeric`.

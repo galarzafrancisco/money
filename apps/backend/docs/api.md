@@ -24,7 +24,7 @@ service's zod query or body schema, and a response schema from
 `<domain>.responses.ts`. The client's resources follow the tags:
 
 - `money.accounts`, `transactions`, `lots`, `transfers`, `categories`;
-- `money.reports`, `portfolio`, `prices`, `valuations`, `users`.
+- `money.reports`, `portfolio`, `prices`, `valuations`, `stock-splits`, `users`.
 
 `POST /api/accounts/:id/transactions` appears as a single flattened
 `RecordTransactionRequest`: a `type` enum plus every type's fields. The
@@ -87,6 +87,8 @@ cookie session requires.
 | GET | `/api/valuations/as-of` | `?date=&accountId=&includeSubaccounts=&symbol=&baseCurrency=&fxRates=` | Holdings and value at the close of one date: the snapshot, or reconstructed on demand (`basis`) |
 | GET | `/api/valuations/status` | none | Materialised range, partial days, pending recompute, last job run |
 | POST | `/api/valuations/recompute` | `{ fromDate, accountId?, refreshPrices? }` | 202 `{ requested, fromDate, accounts, refreshedSymbols }`; re-valued on the next job run |
+| GET | `/api/stock-splits` | `?symbol=&fromDate=&toDate=` | Recorded stock splits (market data, read-only); see [stock-splits.md](stock-splits.md) |
+| GET | `/api/stock-splits/adjustment` | `?symbol=&date=` | Cumulative split factor from `date`'s share basis to today's, with the splits behind it |
 | GET | `/api/market-prices/:symbol` | none | `{ symbol, price, currency, asOf, source, isMock, priceType, isStale, staleReason }` (see [market-prices.md](market-prices.md)) |
 | GET | `/.well-known/oauth-protected-resource/{api,mcp}` | none (no auth) | RFC 9728 metadata |
 
@@ -149,6 +151,7 @@ none of them takes a user argument.
 | `get_accounts_report`, `get_categories_report` | `GET /api/reports/accounts`, `/categories` (`fxRates` as an object) |
 | `get_dashboard` | `GET /api/dashboard` (`fxRates` as an object) |
 | `get_valuation_history`, `get_valuation_as_of`, `get_valuation_status`, `request_valuation_recompute` | The valuation routes (`fxRates` as an object) |
+| `list_stock_splits`, `get_split_adjustment` | `GET /api/stock-splits`, `/api/stock-splits/adjustment` (see [stock-splits.md](stock-splits.md)) |
 | `search_transactions` | `GET /api/search/transactions` (see [search.md](search.md#transaction-search)) |
 | `search_merchants`, `search_accounts` | `GET /api/search/merchants`, `/accounts` (see [search.md](search.md)); hand `merchantKey` to `list_up_transactions` |
 | `get_market_price` | `GET /api/market-prices/:symbol` |

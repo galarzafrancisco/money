@@ -32,6 +32,16 @@ export type ValuationHoldingRow = {
   exchangeTimezone: string | null;
   marketValue: string | null;
   priceNote: string | null;
+  /**
+   * Cumulative split factor from the valuation date's share basis to the
+   * present one (1: no split since). quantity, lots and closePrice are in the
+   * date's basis; splitAdjustedQuantity = quantity × factor and
+   * splitAdjustedClose = closePrice ÷ factor are in the present basis.
+   * Null on snapshots written before splits were modelled.
+   */
+  splitFactor: string | null;
+  splitAdjustedQuantity: string | null;
+  splitAdjustedClose: string | null;
   lots: LotSnapshot[];
 };
 
@@ -106,7 +116,8 @@ export class ValuationsRepository {
     const rows: Record<string, unknown>[] = await this.db.query(
       `SELECT ${DATE('valuation_date')} AS date, account_id, symbol, currency, quantity::text AS quantity, cost_base::text AS cost_base,
               price_status, close_price::text AS close_price, price_currency, ${DATE('price_date')} AS price_date, price_close_time,
-              price_source, price_is_mock, exchange_timezone, market_value::text AS market_value, price_note, lots
+              price_source, price_is_mock, exchange_timezone, market_value::text AS market_value, price_note, lots,
+              split_factor::text AS split_factor, split_adjusted_quantity::text AS split_adjusted_quantity, split_adjusted_close::text AS split_adjusted_close
          FROM valuation_holdings WHERE ${where}
         ORDER BY valuation_date, account_id, symbol`,
       params,
@@ -128,6 +139,9 @@ export class ValuationsRepository {
       exchangeTimezone: (r.exchange_timezone as string | null) ?? null,
       marketValue: (r.market_value as string | null) ?? null,
       priceNote: (r.price_note as string | null) ?? null,
+      splitFactor: (r.split_factor as string | null) ?? null,
+      splitAdjustedQuantity: (r.split_adjusted_quantity as string | null) ?? null,
+      splitAdjustedClose: (r.split_adjusted_close as string | null) ?? null,
       lots: (typeof r.lots === 'string' ? JSON.parse(r.lots) : r.lots) as LotSnapshot[],
     }));
   }
@@ -155,14 +169,15 @@ export class ValuationsRepository {
           values.push(
             randomUUID(), userId, day.date, h.accountId, h.symbol, h.currency, h.quantity, h.costBase, h.priceStatus, h.closePrice,
             h.priceCurrency, h.priceDate, h.priceCloseTime, h.priceSource, h.priceIsMock, h.exchangeTimezone, h.marketValue, h.priceNote,
-            JSON.stringify(h.lots),
+            JSON.stringify(h.lots), h.splitFactor, h.splitAdjustedQuantity, h.splitAdjustedClose,
           );
-          const p = i * 19;
-          return `(${Array.from({ length: 19 }, (_, k) => `$${p + k + 1}`).join(', ')})`;
+          const p = i * 22;
+          return `(${Array.from({ length: 22 }, (_, k) => `$${p + k + 1}`).join(', ')})`;
         });
         await manager.query(
           `INSERT INTO valuation_holdings (id, user_id, valuation_date, account_id, symbol, currency, quantity, cost_base, price_status, close_price,
-             price_currency, price_date, price_close_time, price_source, price_is_mock, exchange_timezone, market_value, price_note, lots)
+             price_currency, price_date, price_close_time, price_source, price_is_mock, exchange_timezone, market_value, price_note, lots,
+             split_factor, split_adjusted_quantity, split_adjusted_close)
            VALUES ${tuples.join(', ')}`,
           values,
         );
@@ -218,6 +233,23 @@ export class ValuationsRepository {
        SELECT DISTINCT account_id, user_id, $2::date, clock_timestamp() FROM transactions WHERE symbol = $1 AND type IN ('BUY', 'SELL')
        ON CONFLICT (account_id) DO UPDATE SET from_date = LEAST(valuation_recompute_requests.from_date, EXCLUDED.from_date), requested_at = EXCLUDED.requested_at`,
       [symbol, fromDate],
+    );
+  }
+
+  /**
+   * A split of these symbols was recorded or changed: it moves the share
+   * basis of every date before it, so every account (of any user) that has
+   * traded one of them is re-valued from its first trade in it.
+   * System-initiated; nothing is returned to anyone.
+   */
+  async requestRecomputeForSplit(symbols: readonly string[]): Promise<void> {
+    if (symbols.length === 0) return;
+    await this.db.query(
+      `INSERT INTO valuation_recompute_requests (account_id, user_id, from_date, requested_at)
+       SELECT account_id, user_id, MIN(date), clock_timestamp() FROM transactions
+        WHERE symbol = ANY($1::varchar[]) AND type IN ('BUY', 'SELL') GROUP BY account_id, user_id
+       ON CONFLICT (account_id) DO UPDATE SET from_date = LEAST(valuation_recompute_requests.from_date, EXCLUDED.from_date), requested_at = EXCLUDED.requested_at`,
+      [symbols],
     );
   }
 

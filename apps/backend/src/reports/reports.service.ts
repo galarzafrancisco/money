@@ -9,7 +9,7 @@ import { NotFoundError } from '../common/errors';
 import { isUuid, parseInput } from '../common/validation';
 import { replayLedger } from '../ledger/ledger-engine';
 import { MarketPricesService, type QuoteResult } from '../market-prices/market-prices.service';
-import { toLedgerEntry } from '../transactions/transaction.mapper';
+import { SplitsService } from '../splits/splits.service';
 import { TransactionEntity } from '../transactions/transaction.entity';
 import { TransactionsRepository } from '../transactions/transactions.repository';
 import type { UpAccountEntity } from '../up/up.entities';
@@ -105,6 +105,7 @@ export class ReportsService {
     private readonly transactions: TransactionsRepository,
     private readonly upRepo: UpRepository,
     private readonly prices: MarketPricesService,
+    private readonly splits: SplitsService,
   ) {}
 
   async accountsReport(user: CurrentUser, input: ReportOptionsInput = {}): Promise<AccountsReport> {
@@ -192,10 +193,11 @@ export class ReportsService {
       list.push(row);
       rowsByAccount.set(row.accountId, list);
     }
+    const splits = await this.splits.index(rows.filter((r) => r.symbol).map((r) => r.symbol!));
     const states = inScope.map((account) => {
       const imported = upBalances.get(account.id);
       if (imported) return { account, state: { cash: new Map([[imported.currency, dec(imported.balance)]]), positions: new Map<string, never>() } };
-      return { account, state: replayLedger((rowsByAccount.get(account.id) ?? []).map(toLedgerEntry)) };
+      return { account, state: replayLedger(this.splits.presentEntriesWith(rowsByAccount.get(account.id) ?? [], splits)) };
     });
 
     const warnings: string[] = [];

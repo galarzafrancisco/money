@@ -7,7 +7,8 @@ import { isUuid, parseInput } from '../common/validation';
 import { APP_CONFIG, type AppConfig } from '../config/env.config';
 import { addDays, daysBetween } from '../market-prices/market-calendar';
 import { assertRatesCover, type FxPolicy, type ValuationItem } from '../reports/aggregation';
-import { toLedgerEntry } from '../transactions/transaction.mapper';
+import { sameSplits } from '../splits/split-math';
+import { SplitsService } from '../splits/splits.service';
 import type { TransactionEntity } from '../transactions/transaction.entity';
 import { TransactionsRepository } from '../transactions/transactions.repository';
 import type { CurrentUser } from '../users/users.service';
@@ -61,8 +62,18 @@ export type HoldingSnapshotView = {
     isMock: boolean | null;
     note: string | null;
   };
+  /**
+   * The share basis: quantity, lots and price.close are as held and traded
+   * on the valuation date. factor converts them to the present basis
+   * (adjustedQuantity = quantity × factor, adjustedClose = close ÷ factor).
+   * Null on snapshots written before splits were modelled.
+   */
+  split: { basis: 'VALUATION_DATE'; factor: string; adjustedQuantity: string; adjustedClose: string | null } | null;
   lots: LotSnapshot[];
 };
+
+/** A split of a symbol in scope, effective within the requested range: explains a step in quantity and close */
+export type SplitInRange = { symbol: string; instrument: string; effectiveDate: string; numerator: string; denominator: string; ratio: string; provenance: string; source: string };
 
 /** The rate one currency was converted at on one valuation date */
 export type FxRateUsed = {
@@ -140,6 +151,8 @@ export type ValuationHistory = {
   symbol: string | null;
   fx: FxView | null;
   days: ValuationDayView[];
+  /** Splits of the symbols in scope effective within the range: quantities step up and closes step down by the ratio, value does not */
+  splits: SplitInRange[];
   notes: string[];
 };
 
@@ -164,7 +177,7 @@ const NOTES = [
   'Each valuation date values what was held at the end of that date (historical quantities and lots, matched by each sale\'s own lot allocations or FIFO) at the closing price of that trading date on the holding\'s own exchange, in its local time zone.',
   'price.status: CLOSE = that day\'s close; NON_TRADING_DAY = weekend or holiday, valued at the last close (price.tradingDate); PRICE_PENDING = no close yet, provisionally valued at the last close and re-tried; MISSING / CURRENCY_MISMATCH = not valued (marketValue null, excluded from totals.marketValue).',
   'Totals are per currency; currencies are never added together unless you pass baseCurrency. Then each date is converted at that date\'s historical FX close (the latest within VALUATION_MAX_CARRY_DAYS on or before it, shown in converted.rates), or, if you also pass fxRates, at your constant rates for every date. A date with no usable rate has converted null and conversionUnavailable says why.',
-  'Closes are the prices traded on each date (not adjusted for later splits or dividends) and quantities are as recorded; splits are not modelled, and a split while held is flagged in price.note.',
+  'Stock splits are modelled: quantities, lots and price.close are in each valuation date\'s own share basis (shares held and the as-traded close that day), so a split changes quantity and close by its ratio but not the value. holding.split gives the factor to today\'s basis and the split-adjusted quantity and close; splits lists the splits effective in the range (see list_stock_splits). Closes are not adjusted for dividends.',
   'Snapshots hold no categories: join with your current categories by accountId and symbol. Mock prices (isMock: true) are made up.',
   'Personal tracking only, not financial or tax advice.',
 ];
@@ -178,6 +191,7 @@ export class ValuationsService {
     private readonly accounts: AccountsRepository,
     private readonly transactions: TransactionsRepository,
     private readonly prices: PriceHistoryService,
+    private readonly splits: SplitsService,
   ) {}
 
   async history(user: CurrentUser, input: ValuationHistoryInput = {}, now: Date = new Date()): Promise<ValuationHistory> {
@@ -205,6 +219,20 @@ export class ValuationsService {
 
     const byDate = new Map<string, ValuationHoldingRow[]>();
     for (const h of holdings) byDate.set(h.date, [...(byDate.get(h.date) ?? []), h]);
+    const splitIndex = await this.splits.index(holdings.map((h) => h.symbol));
+    const splits: SplitInRange[] = [...splitIndex.entries()]
+      .flatMap(([symbol, list]) => list.filter((x) => x.effectiveDate >= fromDate && x.effectiveDate <= toDate).map((x) => ({ symbol, ...x })))
+      .sort((a, b) => a.effectiveDate.localeCompare(b.effectiveDate) || a.symbol.localeCompare(b.symbol))
+      .map((x) => ({
+        symbol: x.symbol,
+        instrument: x.instrument,
+        effectiveDate: x.effectiveDate,
+        numerator: x.numerator,
+        denominator: x.denominator,
+        ratio: fmt(dec(x.numerator).dividedBy(x.denominator)),
+        provenance: x.provenance,
+        source: x.source,
+      }));
 
     return {
       fromDate,
@@ -228,6 +256,7 @@ export class ValuationsService {
         if (options.include === 'holdings') view.holdings = rows.map(holdingView);
         return view;
       }),
+      splits,
       notes: NOTES,
     };
   }
@@ -267,17 +296,27 @@ export class ValuationsService {
       const entries = (await this.transactions.list(user.id, {})).filter((t) => inScope.has(t.accountId));
       const byAccount = new Map<string, TransactionEntity[]>();
       for (const row of entries) byAccount.set(row.accountId, [...(byAccount.get(row.accountId) ?? []), row]);
-      const positions = accountIds.map((accountId) => ({
-        accountId,
-        byDate: positionsByDate((byAccount.get(accountId) ?? []).map(toLedgerEntry), [options.date]),
-      }));
+      const tradedSymbols = entries.filter((t) => t.symbol).map((t) => t.symbol!);
+      let splits = await this.splits.index(tradedSymbols);
+      const replay = () =>
+        accountIds.map((accountId) => ({
+          accountId,
+          byDate: positionsByDate(this.splits.presentEntriesWith(byAccount.get(accountId) ?? [], splits, now), [options.date]),
+        }));
+      let positions = replay();
       const symbols = new Set<string>();
       for (const { byDate } of positions) for (const p of byDate.get(options.date) ?? []) if (!options.symbol || p.symbol === options.symbol) symbols.add(p.symbol);
       // Back far enough to carry a previous close; a little forward so a later session reveals a holiday
       const later = addDays(options.date, cfg.maxCarryDays);
       const series = await this.prices.getSeries([...symbols], { from: addDays(options.date, -cfg.maxCarryDays), to: later < today ? later : today }, now);
       warnings.push(...seriesWarnings(series));
-      rows = holdingsOn(positions, options.date, series, cfg.maxCarryDays)
+      // The lookup may have recorded a split the provider reported
+      const latest = await this.splits.index(tradedSymbols);
+      if (!sameSplits(splits, latest)) {
+        splits = latest;
+        positions = replay();
+      }
+      rows = holdingsOn(positions, options.date, series, cfg.maxCarryDays, splits)
         .filter((h) => !options.symbol || h.symbol === options.symbol)
         .map((h) => ({ ...h, date: options.date }));
       computedAt = now.toISOString();
@@ -531,6 +570,10 @@ function holdingView(h: ValuationHoldingRow): HoldingSnapshotView {
       isMock: h.priceIsMock,
       note: h.priceNote,
     },
+    split:
+      h.splitFactor === null
+        ? null
+        : { basis: 'VALUATION_DATE', factor: fmt(dec(h.splitFactor)), adjustedQuantity: n(h.splitAdjustedQuantity) ?? fmt(dec(h.quantity).times(h.splitFactor)), adjustedClose: n(h.splitAdjustedClose) },
     lots: h.lots,
   };
 }
