@@ -19,6 +19,12 @@ export function TransactionSummary({ tx, accounts }: { tx: Transaction; accounts
           )}
         </span>
       );
+    case 'GAIN_LOSS':
+      return (
+        <span>
+          {tx.amount?.startsWith('-') ? 'Loss of' : 'Gain of'} <Amount value={tx.amount?.replace(/^-/, '')} currency={tx.currency} />
+        </span>
+      );
     case 'FX_CONVERSION':
       return (
         <span>
@@ -66,6 +72,7 @@ export function CashEffect({ tx }: { tx: Transaction }) {
   const inn = (value: string | null | undefined, currency: string | null | undefined) => <Amount value={value} currency={currency} signed />;
   switch (tx.type) {
     case 'DEPOSIT':
+    case 'GAIN_LOSS':
     case 'TRANSFER_IN':
       return inn(tx.amount, tx.currency);
     case 'WITHDRAWAL':

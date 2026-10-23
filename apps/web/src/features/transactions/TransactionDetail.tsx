@@ -23,6 +23,8 @@ function amountItems(tx: Transaction): Item[] {
     ),
   });
   switch (tx.type) {
+    case 'GAIN_LOSS':
+      return [money('amount', tx.currency)];
     case 'DEPOSIT':
     case 'WITHDRAWAL':
       return [money('amount', tx.currency), ...(tx.externalAmount ? [{ key: 'ext', term: 'Other side', detail: <Amount value={tx.externalAmount} currency={tx.externalCurrency} /> }] : [])];

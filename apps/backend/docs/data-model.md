@@ -62,6 +62,7 @@ can filter on the user directly. `sequence` is the per-account insertion order
 |---|---|---|
 | `DEPOSIT` | `currency`, `amount`; optional `external_currency`, `external_amount` | `+amount` in `currency` |
 | `WITHDRAWAL` | same as `DEPOSIT` | `−amount` in `currency` |
+| `GAIN_LOSS` | `currency`, `amount` (signed, non-zero) | `+amount` in `currency` (a loss debits and cannot take cash below zero). A value change, not a contribution: use it for e.g. super appreciation instead of a synthetic deposit/withdrawal. |
 | `FX_CONVERSION` | `from_currency`, `from_amount`, `to_currency`, `to_amount`, `fx_rate`, `fees` (in from currency) | `−(from_amount + fees)` from, `+to_amount` to |
 | `BUY` | `symbol`, `currency`, `quantity`, `unit_price`, `fees`, `total` (= q × p + fees) | `−total` |
 | `SELL` | same as `BUY`, but `total` = q × p − fees; `lot_selection` (`FIFO` or `SPECIFIC`) | `+total` |

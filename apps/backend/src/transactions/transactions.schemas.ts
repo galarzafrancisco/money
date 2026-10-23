@@ -32,6 +32,11 @@ export const withdrawalShape = {
   amount: decimalString('Amount debited from the account'),
   ...external,
 };
+export const gainLossShape = {
+  ...common,
+  currency: currencyCode.describe('Currency of the account balance that changed in value'),
+  amount: decimalString('Signed change in value: positive for a gain (e.g. "1250.40"), negative for a loss (e.g. "-310.00"). Not a cash flow.'),
+};
 export const fxShape = {
   ...common,
   fromCurrency: currencyCode.describe('Currency sold'),
@@ -99,6 +104,7 @@ export const dividendShape = {
 
 export const depositSchema = z.object(depositShape).refine(bothOrNeither, bothOrNeitherMessage);
 export const withdrawalSchema = z.object(withdrawalShape).refine(bothOrNeither, bothOrNeitherMessage);
+export const gainLossSchema = z.object(gainLossShape);
 export const fxSchema = z
   .object(fxShape)
   .refine((v) => v.fromCurrency !== v.toCurrency, { message: 'fromCurrency and toCurrency must differ', path: ['toCurrency'] });
@@ -109,6 +115,7 @@ export const dividendSchema = z.object(dividendShape);
 export const recordTransactionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('DEPOSIT'), ...depositShape }).refine(bothOrNeither, bothOrNeitherMessage),
   z.object({ type: z.literal('WITHDRAWAL'), ...withdrawalShape }).refine(bothOrNeither, bothOrNeitherMessage),
+  z.object({ type: z.literal('GAIN_LOSS'), ...gainLossShape }),
   z.object({ type: z.literal('FX_CONVERSION'), ...fxShape }),
   z.object({ type: z.literal('BUY'), ...tradeShape }),
   z.object({ type: z.literal('SELL'), ...sellShape }),
@@ -127,7 +134,7 @@ export const updateTransactionSchema = z
     date: isoDate.optional(),
     description: z.string().trim().max(2000).nullish(),
     currency: currencyCode.optional(),
-    amount: decimalString('Deposit or withdrawal amount').optional(),
+    amount: decimalString('Deposit or withdrawal amount; signed for a gain/loss').optional(),
     externalCurrency: currencyCode.nullable().optional(),
     externalAmount: nullableDecimal('Other-side amount; null clears it'),
     fromCurrency: currencyCode.optional(),
@@ -164,6 +171,7 @@ export const listTransactionsSchema = z.object({
 export const UPDATABLE_FIELDS: Record<string, readonly string[]> = {
   DEPOSIT: ['date', 'description', 'currency', 'amount', 'externalCurrency', 'externalAmount'],
   WITHDRAWAL: ['date', 'description', 'currency', 'amount', 'externalCurrency', 'externalAmount'],
+  GAIN_LOSS: ['date', 'description', 'currency', 'amount'],
   FX_CONVERSION: ['date', 'description', 'fromCurrency', 'toCurrency', 'fromAmount', 'toAmount', 'rate', 'fees'],
   BUY: ['date', 'description', 'symbol', 'currency', 'quantity', 'unitPrice', 'fees', 'total'],
   SELL: ['date', 'description', 'symbol', 'currency', 'quantity', 'unitPrice', 'fees', 'total', 'allocations'],

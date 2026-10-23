@@ -19,6 +19,7 @@ import { UpAccountCategory1761900000000 } from './migrations/1761900000000-UpAcc
 import { ValuationRecomputeCheckpoints1762000000000 } from './migrations/1762000000000-ValuationRecomputeCheckpoints';
 import { PriceCoverageRanges1762100000000 } from './migrations/1762100000000-PriceCoverageRanges';
 import { AccountGroups1762200000000 } from './migrations/1762200000000-AccountGroups';
+import { GainLossTransactions1762300000000 } from './migrations/1762300000000-GainLossTransactions';
 
 export const ENTITIES = [UserEntity, AccountEntity, TransactionEntity, SaleLotAllocationEntity, CategoryEntity, HoldingCategoryEntity, TransferEntity, AccountGroupEntity, AccountGroupMemberEntity, ...UP_ENTITIES];
 export const MIGRATIONS = [
@@ -35,4 +36,5 @@ export const MIGRATIONS = [
   ValuationRecomputeCheckpoints1762000000000,
   PriceCoverageRanges1762100000000,
   AccountGroups1762200000000,
+  GainLossTransactions1762300000000,
 ];

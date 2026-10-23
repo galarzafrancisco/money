@@ -22,6 +22,7 @@ import { reportOptionsSchema } from '../reports/reports.schemas';
 import { ReportsService } from '../reports/reports.service';
 import {
   depositShape,
+  gainLossShape,
   dividendShape,
   fxShape,
   listTransactionsSchema,
@@ -233,6 +234,13 @@ export class MoneyMcpServerFactory {
       write,
       { accountId, ...withdrawalShape },
       ({ accountId, ...input }) => this.transactions.recordOfType(user, accountId, 'WITHDRAWAL', input),
+    );
+    tool(
+      'record_gain_loss',
+      `Record a change in the value of the account's balance that is not a cash flow, e.g. a superannuation balance rising or falling with the market. Positive amount = gain, negative = loss. Use this instead of a synthetic deposit or withdrawal, so contributions and returns stay apart. A loss fails if it would take the balance below zero. ${PERSONAL_TRACKING}`,
+      write,
+      { accountId, ...gainLossShape },
+      ({ accountId, ...input }) => this.transactions.recordOfType(user, accountId, 'GAIN_LOSS', input),
     );
     tool(
       'record_fx_conversion',

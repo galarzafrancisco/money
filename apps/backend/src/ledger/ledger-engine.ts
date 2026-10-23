@@ -73,6 +73,11 @@ export function replayLedger(entries: readonly LedgerEntry[], options: ReplayOpt
       case 'DEPOSIT':
         credit(entry.currency, entry.amount);
         break;
+      case 'GAIN_LOSS':
+        // A loss may not take the balance below zero, like a withdrawal
+        if (entry.amount.isNegative()) debit(entry, entry.currency, entry.amount.negated());
+        else credit(entry.currency, entry.amount);
+        break;
       case 'WITHDRAWAL':
         debit(entry, entry.currency, entry.amount);
         break;
@@ -303,6 +308,8 @@ function describe(entry: LedgerEntry): string {
       return `buy of ${fmt(entry.quantity)} ${entry.symbol}`;
     case 'FX_CONVERSION':
       return `conversion from ${entry.fromCurrency} to ${entry.toCurrency}`;
+    case 'GAIN_LOSS':
+      return 'loss';
     case 'TRANSFER_OUT':
       return 'transfer out';
     case 'TRANSFER_IN':

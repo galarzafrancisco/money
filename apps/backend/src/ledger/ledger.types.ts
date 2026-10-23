@@ -1,6 +1,6 @@
 import type { MoneyDecimal } from '../common/decimal';
 
-export const TRANSACTION_TYPES = ['DEPOSIT', 'WITHDRAWAL', 'FX_CONVERSION', 'BUY', 'SELL', 'DIVIDEND', 'TRANSFER_OUT', 'TRANSFER_IN'] as const;
+export const TRANSACTION_TYPES = ['DEPOSIT', 'WITHDRAWAL', 'GAIN_LOSS', 'FX_CONVERSION', 'BUY', 'SELL', 'DIVIDEND', 'TRANSFER_OUT', 'TRANSFER_IN'] as const;
 export type TransactionType = (typeof TRANSACTION_TYPES)[number];
 /** The legs of a transfer between two accounts. They are created, edited and deleted only through the transfer. */
 export const TRANSFER_LEG_TYPES = ['TRANSFER_OUT', 'TRANSFER_IN'] as const;
@@ -20,6 +20,12 @@ type Base = {
 };
 
 export type CashEntry = Base & { type: 'DEPOSIT' | 'WITHDRAWAL'; currency: string; amount: MoneyDecimal };
+/**
+ * Value change that is not a cash flow in or out of the account, e.g. the
+ * appreciation of a superannuation balance or a fund's unit price moving.
+ * `amount` is signed: positive is a gain, negative a loss.
+ */
+export type GainLossEntry = Base & { type: 'GAIN_LOSS'; currency: string; amount: MoneyDecimal };
 export type FxEntry = Base & {
         type: 'FX_CONVERSION';
         fromCurrency: string;
@@ -72,7 +78,7 @@ export type TransferEntry = Base & {
         fees: MoneyDecimal;
       };
 
-export type LedgerEntry = CashEntry | FxEntry | TradeEntry | DividendEntry | TransferEntry;
+export type LedgerEntry = CashEntry | GainLossEntry | FxEntry | TradeEntry | DividendEntry | TransferEntry;
 
 /** A parcel of shares bought by one BUY, as far as it has not been sold. Its ID is the BUY transaction's ID. */
 export type Lot = {

@@ -61,6 +61,11 @@ export function materialize(type: TransactionType, fields: TransactionFields): M
         externalAmount: fields.externalAmount ? fmt(dec(fields.externalAmount)) : null,
       };
     }
+    case 'GAIN_LOSS': {
+      const amount = required(fields, 'amount');
+      if (amount.isZero()) throw new ValidationError('amount cannot be zero: use a positive number for a gain and a negative one for a loss');
+      return { ...base, currency: requiredText(fields, 'currency'), amount: fmt(amount) };
+    }
     case 'FX_CONVERSION': {
       const fromCurrency = requiredText(fields, 'fromCurrency');
       const toCurrency = requiredText(fields, 'toCurrency');
@@ -160,6 +165,7 @@ export function toLedgerEntry(t: TransactionEntity): LedgerEntry {
   switch (t.type) {
     case 'DEPOSIT':
     case 'WITHDRAWAL':
+    case 'GAIN_LOSS':
       return { ...base, type: t.type, currency: t.currency!, amount: dec(t.amount!) };
     case 'FX_CONVERSION':
       return {
@@ -245,6 +251,9 @@ export function toTransactionView(t: TransactionEntity): TransactionView {
         externalCurrency: t.externalCurrency,
         externalAmount: s(t.externalAmount),
       });
+      break;
+    case 'GAIN_LOSS':
+      Object.assign(view, { currency: t.currency, amount: s(t.amount) });
       break;
     case 'FX_CONVERSION':
       Object.assign(view, {

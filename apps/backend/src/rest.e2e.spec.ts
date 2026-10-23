@@ -186,6 +186,17 @@ describe('REST API', () => {
       expect(after).toBe(before);
     });
 
+    it('records gains and losses as signed value changes and rejects zero', async () => {
+      const gain = await tx({ type: 'GAIN_LOSS', date: '2025-05-02', currency: 'USD', amount: '12.5' }).expect(201);
+      expect(gain.body).toMatchObject({ type: 'GAIN_LOSS', amount: '12.5' });
+      const loss = await tx({ type: 'GAIN_LOSS', date: '2025-05-03', currency: 'USD', amount: '-2.5' }).expect(201);
+      expect(loss.body.amount).toBe('-2.5');
+      await tx({ type: 'GAIN_LOSS', date: '2025-05-03', currency: 'USD', amount: '0' }).expect(400);
+      await tx({ type: 'GAIN_LOSS', date: '2025-05-03', currency: 'USD', amount: '-100000' }).expect(422);
+      await as(tokenA).delete(`/api/transactions/${gain.body.id}`).expect(200);
+      await as(tokenA).delete(`/api/transactions/${loss.body.id}`).expect(200);
+    });
+
     it('filters transactions', async () => {
       const { body } = await as(tokenA).get(`/api/accounts/${accountId}/transactions?type=BUY&symbol=VOO`).expect(200);
       expect(body).toHaveLength(2);
