@@ -153,14 +153,31 @@ function ShareHistory({ dashboard }: { dashboard: Dashboard }) {
   });
   const days = inRange.filter((d) => d.totals.converted);
   const unconverted = inRange.length - days.length;
+  const periodControl = (
+    <SegmentedControl
+      legend="Period"
+      name="share-history-range"
+      value={range}
+      onChange={setRange}
+      options={[
+        { value: '3m', label: '3 months' },
+        { value: '1y', label: '1 year' },
+        { value: '3y', label: '3 years' },
+        { value: 'all', label: 'All' },
+      ]}
+    />
+  );
   if (days.length < 2) {
     return (
       <Card title={title}>
-        <Text size="sm" tone="muted">
-          {unconverted > 0
-            ? `No exchange rate to ${dashboard.displayCurrency} for ${unconverted} day(s), so they cannot be charted.`
-            : 'Not enough daily valuations yet. They are worked out after each market close.'}
-        </Text>
+        <Stack gap={2}>
+          {range !== 'all' && periodControl}
+          <Text size="sm" tone="muted">
+            {unconverted > 0
+              ? `No exchange rate to ${dashboard.displayCurrency} for ${unconverted} day(s), so they cannot be charted.`
+              : 'Not enough daily valuations yet. They are worked out after each market close.'}
+          </Text>
+        </Stack>
       </Card>
     );
   }
@@ -171,18 +188,7 @@ function ShareHistory({ dashboard }: { dashboard: Dashboard }) {
   return (
     <Card title={title}>
       <Stack gap={2}>
-        <SegmentedControl
-          legend="Period"
-          name="share-history-range"
-          value={range}
-          onChange={setRange}
-          options={[
-            { value: '3m', label: '3 months' },
-            { value: '1y', label: '1 year' },
-            { value: '3y', label: '3 years' },
-            { value: 'all', label: 'All' },
-          ]}
-        />
+        {periodControl}
         <TrendLine
           label={`Share holdings value in ${dashboard.displayCurrency} from ${first.date} to ${last.date}`}
           points={days.map((d) => ({

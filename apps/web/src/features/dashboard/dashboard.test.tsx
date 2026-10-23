@@ -1,5 +1,6 @@
 import type { Dashboard, ReportTotals } from '@money/client';
 import { screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { apiError, fakeClient, renderApp } from '../../test/render';
 
 const totals = (display: string | null, total: string, byCurrency: { currency: string; total: string }[], holdings = '0'): ReportTotals => ({
@@ -204,6 +205,38 @@ describe('dashboard', () => {
     expect(client.valuations.getValuationHistory.mock.calls[0][0]).not.toHaveProperty('fxRates');
     expect(screen.getByText(/1 day\(s\) are left out: no exchange rate for that day/)).toBeInTheDocument();
     expect(screen.getByText(/1 day\(s\) are being recalculated/)).toBeInTheDocument();
+  });
+
+  it('keeps the period selector when a short period has too few days, so the user can go back to All', async () => {
+    const client = clientWith(dashboardFixture());
+    const day = (date: string, value: string) => ({
+      date,
+      complete: true,
+      includesMockPrices: false,
+      pendingRecompute: false,
+      priceProvider: 'yahoo',
+      computedAt: `${date}T07:00:00.000Z`,
+      totals: {
+        byCurrency: [],
+        converted: { baseCurrency: 'AUD', marketValue: value, costBase: '100', rates: [] },
+        conversionUnavailable: [],
+      },
+    });
+    client.valuations.getValuationHistory.mockResolvedValue({
+      fromDate: '2019-01-01',
+      toDate: '2026-10-21',
+      accountId: null,
+      includeSubaccounts: true,
+      symbol: null,
+      fx: { baseCurrency: 'AUD', policy: 'HISTORICAL', rates: null, description: 'Historical' },
+      days: [day('2019-03-01', '100'), day('2020-03-01', '120'), day('2026-10-21', '160')],
+      notes: [],
+    });
+    renderApp('/dashboard', { client });
+    await userEvent.click(await screen.findByRole('radio', { name: '3 months' }));
+    expect(await screen.findByText(/Not enough daily valuations yet/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('radio', { name: 'All' }));
+    expect(await screen.findByText(/converted at that day's closing exchange rate/)).toBeInTheDocument();
   });
 
   it('offers to create an account when there is nothing to show', async () => {
