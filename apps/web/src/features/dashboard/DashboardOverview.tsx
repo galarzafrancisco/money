@@ -94,6 +94,7 @@ export function DashboardOverview() {
                 Not converted to {dashboard.displayCurrency}: an exchange rate is missing. Per currency:
               </Text>
             )}
+            <DailyChange dashboard={dashboard} />
             <Text size="sm" tone="muted" as="div">
               By currency held:
             </Text>
@@ -176,5 +177,34 @@ function ShareHistory({ dashboard }: { dashboard: Dashboard }) {
         </Text>
       </Stack>
     </Card>
+  );
+}
+
+/** Change since the previous close, green for a gain and red for a loss */
+function DailyChange({ dashboard }: { dashboard: Dashboard }) {
+  const { dailyChange } = dashboard;
+  if (!dailyChange.converted) {
+    return dailyChange.holdingsIncluded === 0 ? null : (
+      <Text size="sm" tone="muted">
+        Daily change is not available: an exchange rate is missing.
+      </Text>
+    );
+  }
+  return (
+    <Text size="sm" as="div">
+      <span data-testid="daily-change">
+        <Amount value={dailyChange.converted.change} currency={dailyChange.converted.baseCurrency} signed />
+        {dailyChange.percent !== null && (
+          <>
+            {' '}
+            (<Amount value={dailyChange.percent} kind="percent" signed />)
+          </>
+        )}
+      </span>{' '}
+      <Text size="xs" tone="muted" as="span">
+        since the previous close
+        {!dailyChange.complete && ` · ${dailyChange.holdingsExcluded} holding(s) left out: no market price or previous close`}
+      </Text>
+    </Text>
   );
 }

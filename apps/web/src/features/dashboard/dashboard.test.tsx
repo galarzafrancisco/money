@@ -19,6 +19,14 @@ function dashboardFixture({ display = 'AUD', converted = true }: { display?: str
       ? { displayCurrency: display, complete: true, rates: [{ currency: 'USD', rate: '1.5', source: 'market', provider: 'mock', asOf: '2026-10-22T00:00:00.000Z', isMock: true, isStale: false }], missing: [] }
       : { displayCurrency: display, complete: false, rates: [], missing: [{ currency: 'USD', reason: 'No USD→AUD exchange rate from provider yahoo' }] },
     valuation: { status: converted ? 'COMPLETE' : 'PARTIAL', usesMockPrices: true, holdings: 2, marketPriced: 0, stalePriced: 0, mockPriced: 2, costFallback: 0, oldestPriceAsOf: null, stalePriceDays: 5 },
+    dailyChange: {
+      byCurrency: [{ currency: 'USD', change: '-8000' }],
+      converted: converted ? { baseCurrency: display, change: '-12000' } : null,
+      percent: pct('-1.2'),
+      holdingsIncluded: 2,
+      holdingsExcluded: 0,
+      complete: converted,
+    },
     total: totals(c, '1000', [{ currency: 'AUD', total: '700' }, { currency: 'USD', total: '200' }]),
     assetClasses: [
       { assetClass: 'cash', totals: totals(c, '400', [{ currency: 'AUD', total: '400' }]), percentOfTotal: pct('40'), accounts: [{ accountId: 'bank', accountPath: ['Bank'], totals: totals(c, '400', [{ currency: 'AUD', total: '400' }]), percentOfClass: pct('100') }] },
@@ -100,6 +108,14 @@ describe('dashboard', () => {
     expect(screen.getByText('Complete valuation')).toBeInTheDocument();
     expect(screen.getByText('Includes mock data')).toBeInTheDocument();
     expect(screen.getByText(/mock rate/)).toBeInTheDocument();
+  });
+
+  it('shows the daily change in red for a loss, with its percentage', async () => {
+    renderApp('/dashboard', { client: clientWith(dashboardFixture()) });
+    const change = await screen.findByTestId('daily-change');
+    expect(change).toHaveTextContent(/12K\s*AUD/);
+    expect(change.querySelector('.amount--negative')).not.toBeNull();
+    expect(change).toHaveTextContent('1.2%');
   });
 
   it('switches the display currency through the backend', async () => {
