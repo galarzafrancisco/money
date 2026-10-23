@@ -493,6 +493,9 @@ describe('Up! read-only import (mock provider)', () => {
       expect(def.accounts.find((a: any) => a.id === shown.id).items.every((i: any) => i.source === 'up')).toBe(true);
       expect(cats.categories.flatMap((c: any) => c.items).filter((i: any) => i.source === 'up').length).toBeGreaterThan(0);
 
+      const dash = (await as(user).get('/api/dashboard?displayCurrency=AUD').expect(200)).body;
+      expect(Object.fromEntries(dash.accounts.map((a: any) => [a.id, a.source]))).toMatchObject({ [manual.id]: 'manual', [shown.id]: 'up' });
+
       // An account Up stopped listing keeps its last balance but drops out of reports, even by ID
       const before = aud(all.totals);
       await t.app.get(DataSource).query(`UPDATE up_accounts SET removed_at = now() WHERE id = $1`, [shown.id]);

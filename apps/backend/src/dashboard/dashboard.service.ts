@@ -197,6 +197,7 @@ export class DashboardService {
         id: node.account.id,
         name: node.account.name,
         type: node.account.type,
+        source: ctx.sourceOf(node.account.id),
         subaccounts: node.children.length,
         totals: accountTotals,
         percentOfTotal: percentOf(accountTotals.converted?.total, grand),
