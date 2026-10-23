@@ -35,7 +35,7 @@ describe('OpenAPI spec', () => {
   it('types decimal amounts as strings and flattens the transaction body', () => {
     const spec = buildOpenApiSpec() as { components: { schemas: Record<string, { properties: Record<string, { type: string; enum?: string[] }>; required?: string[] }> } };
     const body = spec.components.schemas.RecordTransactionRequest;
-    expect(body.properties.type.enum).toEqual(['DEPOSIT', 'WITHDRAWAL', 'FX_CONVERSION', 'BUY', 'SELL', 'DIVIDEND']);
+    expect(body.properties.type.enum).toEqual(['DEPOSIT', 'WITHDRAWAL', 'GAIN_LOSS', 'FX_CONVERSION', 'BUY', 'SELL', 'DIVIDEND']);
     expect(body.properties.amount.type).toBe('string');
     expect(body.properties.quantity.type).toBe('string');
     expect(body.required).toEqual(['type', 'date']);

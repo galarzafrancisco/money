@@ -18,7 +18,7 @@ export const transactionSchema = apiSchema(
     calculatedField: z.string().nullable().describe('The field Money calculated from the others, if any'),
     createdAt: z.string(),
     updatedAt: z.string(),
-    // DEPOSIT, WITHDRAWAL, BUY, SELL, DIVIDEND, TRANSFER_*
+    // DEPOSIT, WITHDRAWAL, GAIN_LOSS (signed), BUY, SELL, DIVIDEND, TRANSFER_*
     currency: z.string().nullable().optional(),
     amount: decimalOut().nullable().optional(),
     externalCurrency: z.string().nullable().optional(),

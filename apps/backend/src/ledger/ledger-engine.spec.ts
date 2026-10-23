@@ -185,3 +185,16 @@ describe('replayLedger: transfer legs', () => {
     expect(() => replayLedger([leg('TRANSFER_IN', '2025-01-05', 'USD', '100'), withdraw('2025-01-04', 'USD', '100')])).toThrow(LedgerViolationError);
   });
 });
+
+describe('replayLedger: gain/loss', () => {
+  const gainLoss = (date: string, currency: string, amount: string): LedgerEntry => ({ ...at(date), type: 'GAIN_LOSS', currency, amount: dec(amount) });
+
+  it('adds a gain and subtracts a loss without being a deposit or withdrawal', () => {
+    const state = replayLedger([deposit('2025-01-01', 'AUD', '1000'), gainLoss('2025-02-01', 'AUD', '75.5'), gainLoss('2025-03-01', 'AUD', '-20')]);
+    expect(cash(state, 'AUD')).toBe('1055.5');
+  });
+
+  it('rejects a loss larger than the balance', () => {
+    expect(() => replayLedger([deposit('2025-01-01', 'AUD', '100'), gainLoss('2025-02-01', 'AUD', '-101')])).toThrow(LedgerViolationError);
+  });
+});

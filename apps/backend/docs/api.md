@@ -92,6 +92,7 @@ cookie session requires.
 
 Transaction bodies, by `type` (all of them take `date` YYYY-MM-DD and an optional `description`):
 
+- `GAIN_LOSS`: `currency`, signed `amount` (positive gain, negative loss); MCP `record_gain_loss`
 - `DEPOSIT` / `WITHDRAWAL`: `currency`, `amount`, optional `externalCurrency` + `externalAmount`
 - `FX_CONVERSION`: `fromCurrency`, `toCurrency`, two of `fromAmount` / `toAmount` / `rate`, optional `fees`
 - `BUY` / `SELL`: `symbol`, `currency`, three of `quantity` / `unitPrice` / `fees` / `total`

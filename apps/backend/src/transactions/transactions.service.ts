@@ -18,6 +18,7 @@ import {
   depositSchema,
   dividendSchema,
   fxSchema,
+  gainLossSchema,
   listTransactionsSchema,
   recordTransactionSchema,
   sellSchema,
@@ -32,6 +33,7 @@ import {
 const SCHEMA_BY_TYPE = {
   DEPOSIT: depositSchema,
   WITHDRAWAL: withdrawalSchema,
+  GAIN_LOSS: gainLossSchema,
   FX_CONVERSION: fxSchema,
   BUY: tradeSchema,
   SELL: sellSchema,

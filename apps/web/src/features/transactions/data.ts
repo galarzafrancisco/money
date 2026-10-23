@@ -103,6 +103,7 @@ export function useDeleteTransfer() {
 export const TYPE_LABELS: Record<TransactionType, string> = {
   DEPOSIT: 'Deposit',
   WITHDRAWAL: 'Withdrawal',
+  GAIN_LOSS: 'Gain / loss',
   FX_CONVERSION: 'Currency conversion',
   BUY: 'Buy',
   SELL: 'Sell',
