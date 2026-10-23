@@ -199,7 +199,8 @@ describe('dashboard', () => {
     });
     renderApp('/dashboard', { client });
     expect(await screen.findByText(/converted at that day's closing exchange rate/)).toBeInTheDocument();
-    expect(client.valuations.getValuationHistory).toHaveBeenCalledWith(expect.objectContaining({ baseCurrency: 'AUD' }));
+    expect(client.valuations.getValuationHistory).toHaveBeenCalledWith(expect.objectContaining({ baseCurrency: 'AUD', fromDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) }));
+    expect(screen.getByRole('radio', { name: 'All' })).toBeChecked();
     expect(client.valuations.getValuationHistory.mock.calls[0][0]).not.toHaveProperty('fxRates');
     expect(screen.getByText(/1 day\(s\) are left out: no exchange rate for that day/)).toBeInTheDocument();
     expect(screen.getByText(/1 day\(s\) are being recalculated/)).toBeInTheDocument();

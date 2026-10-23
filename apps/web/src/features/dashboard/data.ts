@@ -46,16 +46,23 @@ export function useDashboard(settings: DashboardSettings) {
 }
 
 /**
- * Daily value of share holdings (not cash, not total wealth) over the last
- * 90 days, each day converted at that day's historical exchange rate (the
+ * Daily value of share holdings (not cash, not total wealth) for all the data
+ * available (the backend's longest range, about 10 years), each day converted at that day's historical exchange rate (the
  * backend's HISTORICAL policy). Today's or manual rates are never applied to
  * past days; a day without a rate has no converted total.
  */
+/** The backend allows 3660 days per request; ask for that many and it returns what exists */
+function historyStart(): string {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() - 3659);
+  return d.toISOString().slice(0, 10);
+}
+
 export function useShareHistory(dashboard: Dashboard | undefined) {
   const { run } = useApi();
   return useQuery({
     queryKey: queryKeys.shareHistory(dashboard?.displayCurrency ?? ''),
-    queryFn: ({ signal }) => run((c) => c.valuations.getValuationHistory({ include: 'totals', baseCurrency: dashboard!.displayCurrency, signal })),
+    queryFn: ({ signal }) => run((c) => c.valuations.getValuationHistory({ include: 'totals', baseCurrency: dashboard!.displayCurrency, fromDate: historyStart(), signal })),
     enabled: Boolean(dashboard),
   });
 }
