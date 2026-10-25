@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useState, type PointerEvent, type ReactNode } from 'react';
 import { decimalSign, formatDecimal } from '../lib/decimal';
 import { Swatch } from './Feedback';
 import './chart.css';
@@ -51,31 +51,98 @@ export function AllocationBar({ segments, label }: { segments: AllocationSegment
   );
 }
 
+export type TrendPoint = { key: string; value: number; title: string; date: string };
+
+const W = 640;
+const H = 240;
+const PAD = { top: 12, right: 12, bottom: 24, left: 56 };
+
+function niceTicks(min: number, max: number, count: number): number[] {
+  const span = max - min || Math.abs(max) || 1;
+  const raw = span / count;
+  const mag = 10 ** Math.floor(Math.log10(raw));
+  const step = ([1, 2, 5, 10].find((m) => m * mag >= raw) ?? 10) * mag;
+  const ticks: number[] = [];
+  for (let t = Math.ceil(min / step) * step; t <= max + step * 1e-9; t += step) ticks.push(t);
+  return ticks;
+}
+
+function compactMoney(v: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat('en', { style: 'currency', currency, currencyDisplay: 'code', notation: 'compact', maximumFractionDigits: 1 }).format(v);
+  } catch {
+    return `${currency} ${new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(v)}`;
+  }
+}
+
+function shortDate(date: string): string {
+  const d = new Date(`${date}T00:00:00Z`);
+  return d.toLocaleDateString('en', { month: 'short', year: '2-digit', timeZone: 'UTC' });
+}
+
 /**
- * A single-series line over time, for a trend at a glance. Values are plot
- * coordinates only; callers show the exact figures (decimal strings) in text
- * or a table. Hovering a column shows that point's label.
+ * A single-series line over time with light currency and date axes. Hover (desktop)
+ * or touch and drag (mobile) shows a guide line with the date and value.
+ * Values are plot coordinates only; callers show exact figures in text.
  */
-export function TrendLine({ points, label }: { points: { key: string; value: number; title: string }[]; label: string }) {
+export function TrendLine({ points, label, currency }: { points: TrendPoint[]; label: string; currency: string }) {
+  const [active, setActive] = useState<number | null>(null);
   if (points.length < 2) return null;
   const values = points.map((p) => p.value);
   const min = Math.min(...values);
   const max = Math.max(...values);
-  const span = max - min || 1;
-  const width = 100;
-  const height = 40;
-  const x = (i: number) => (i / (points.length - 1)) * width;
-  const y = (v: number) => height - 2 - ((v - min) / span) * (height - 4);
-  const step = width / (points.length - 1);
+  const yTicks = niceTicks(min, max, 4);
+  const lo = Math.min(min, yTicks[0] ?? min);
+  const hi = Math.max(max, yTicks[yTicks.length - 1] ?? max);
+  const span = hi - lo || 1;
+  const iw = W - PAD.left - PAD.right;
+  const ih = H - PAD.top - PAD.bottom;
+  const x = (i: number) => PAD.left + (i / (points.length - 1)) * iw;
+  const y = (v: number) => PAD.top + ih - ((v - lo) / span) * ih;
+  const xTickIdx = [...new Set([0, 1, 2, 3].map((k) => Math.round((k / 3) * (points.length - 1))))];
+
+  const pick = (e: PointerEvent<SVGSVGElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const px = ((e.clientX - rect.left) / rect.width) * W;
+    const i = Math.round(((px - PAD.left) / iw) * (points.length - 1));
+    setActive(Math.max(0, Math.min(points.length - 1, i)));
+  };
+  const a = active === null ? null : points[active];
+  const anchorRight = active !== null && active > points.length * 0.6;
   return (
-    <svg className="trend" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" role="img" aria-label={label}>
-      <line className="trend__grid" x1="0" x2={width} y1={height - 2} y2={height - 2} vectorEffect="non-scaling-stroke" />
-      <polyline className="trend__line" points={points.map((p, i) => `${x(i)},${y(p.value)}`).join(' ')} vectorEffect="non-scaling-stroke" />
-      {points.map((p, i) => (
-        <rect key={p.key} className="trend__hit" x={Math.max(0, x(i) - step / 2)} y="0" width={step} height={height}>
-          <title>{p.title}</title>
-        </rect>
+    <svg
+      className="trend"
+      viewBox={`0 0 ${W} ${H}`}
+      role="img"
+      aria-label={label}
+      onPointerDown={pick}
+      onPointerMove={pick}
+      onPointerLeave={() => setActive(null)}
+      onPointerCancel={() => setActive(null)}
+    >
+      {yTicks.map((t) => (
+        <g key={t}>
+          <line className="trend__grid" x1={PAD.left} x2={W - PAD.right} y1={y(t)} y2={y(t)} />
+          <text className="trend__tick" x={PAD.left - 6} y={y(t)} textAnchor="end" dominantBaseline="middle">
+            {compactMoney(t, currency)}
+          </text>
+        </g>
       ))}
+      {xTickIdx.map((i, k) => (
+        <text key={i} className="trend__tick" x={x(i)} y={H - 6} textAnchor={k === 0 ? 'start' : k === xTickIdx.length - 1 ? 'end' : 'middle'}>
+          {shortDate(points[i].date)}
+        </text>
+      ))}
+      <polyline className="trend__line" points={points.map((p, i) => `${x(i)},${y(p.value)}`).join(' ')} />
+      {a && active !== null && (
+        <g className="trend__cursor" pointerEvents="none">
+          <line x1={x(active)} x2={x(active)} y1={PAD.top} y2={PAD.top + ih} />
+          <circle cx={x(active)} cy={y(a.value)} r="4" />
+          <text className="trend__readout" x={x(active) + (anchorRight ? -8 : 8)} y={PAD.top + 12} textAnchor={anchorRight ? 'end' : 'start'}>
+            {a.title}
+          </text>
+        </g>
+      )}
     </svg>
   );
 }
