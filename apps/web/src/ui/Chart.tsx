@@ -67,8 +67,12 @@ function niceTicks(min: number, max: number, count: number): number[] {
   return ticks;
 }
 
-function compactMoney(v: number): string {
-  return `$${new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(v)}`;
+function compactMoney(v: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat('en', { style: 'currency', currency, currencyDisplay: 'code', notation: 'compact', maximumFractionDigits: 1 }).format(v);
+  } catch {
+    return `${currency} ${new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(v)}`;
+  }
 }
 
 function shortDate(date: string): string {
@@ -77,11 +81,11 @@ function shortDate(date: string): string {
 }
 
 /**
- * A single-series line over time with light $ and date axes. Hover (desktop)
+ * A single-series line over time with light currency and date axes. Hover (desktop)
  * or touch and drag (mobile) shows a guide line with the date and value.
  * Values are plot coordinates only; callers show exact figures in text.
  */
-export function TrendLine({ points, label }: { points: TrendPoint[]; label: string }) {
+export function TrendLine({ points, label, currency }: { points: TrendPoint[]; label: string; currency: string }) {
   const [active, setActive] = useState<number | null>(null);
   if (points.length < 2) return null;
   const values = points.map((p) => p.value);
@@ -95,7 +99,7 @@ export function TrendLine({ points, label }: { points: TrendPoint[]; label: stri
   const ih = H - PAD.top - PAD.bottom;
   const x = (i: number) => PAD.left + (i / (points.length - 1)) * iw;
   const y = (v: number) => PAD.top + ih - ((v - lo) / span) * ih;
-  const xTickIdx = [0, 1, 2, 3].map((k) => Math.round((k / 3) * (points.length - 1)));
+  const xTickIdx = [...new Set([0, 1, 2, 3].map((k) => Math.round((k / 3) * (points.length - 1))))];
 
   const pick = (e: PointerEvent<SVGSVGElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -120,7 +124,7 @@ export function TrendLine({ points, label }: { points: TrendPoint[]; label: stri
         <g key={t}>
           <line className="trend__grid" x1={PAD.left} x2={W - PAD.right} y1={y(t)} y2={y(t)} />
           <text className="trend__tick" x={PAD.left - 6} y={y(t)} textAnchor="end" dominantBaseline="middle">
-            {compactMoney(t)}
+            {compactMoney(t, currency)}
           </text>
         </g>
       ))}

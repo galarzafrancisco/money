@@ -191,6 +191,7 @@ function ShareHistory({ dashboard }: { dashboard: Dashboard }) {
       <Stack gap={2}>
         {periodControl}
         <TrendLine
+          currency={dashboard.displayCurrency}
           label={`Share holdings value in ${dashboard.displayCurrency} from ${first.date} to ${last.date}`}
           points={days.map((d) => ({
             key: d.date,
