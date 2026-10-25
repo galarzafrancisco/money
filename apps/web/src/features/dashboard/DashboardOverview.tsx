@@ -103,6 +103,8 @@ export function DashboardOverview() {
           </Stack>
       </Card>
 
+      <ShareHistory dashboard={dashboard} />
+
       <Card title="By asset class">
         <Stack gap={3}>
           {allPercents(dashboard.assetClasses, (c) => c.percentOfTotal) ? (
@@ -125,7 +127,6 @@ export function DashboardOverview() {
         />
       </Card>
 
-      <ShareHistory dashboard={dashboard} />
     </Stack>
   );
 }
@@ -193,6 +194,7 @@ function ShareHistory({ dashboard }: { dashboard: Dashboard }) {
           label={`Share holdings value in ${dashboard.displayCurrency} from ${first.date} to ${last.date}`}
           points={days.map((d) => ({
             key: d.date,
+            date: d.date,
             value: Number(d.totals.converted!.marketValue),
             title: `${d.date}: ${d.totals.converted!.marketValue} ${dashboard.displayCurrency}${d.complete ? '' : ' (partial)'}${d.includesMockPrices ? ' (mock prices)' : ''}`,
           }))}
