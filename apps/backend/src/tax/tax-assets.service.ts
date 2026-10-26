@@ -169,10 +169,12 @@ export class TaxAssetsService {
     const data = parseInput(assetYearSchema, input);
     const year = parseInput(taxYearSchema, taxYear);
     await this.uow.run(async (manager) => {
-      const asset = isUuid(assetId) ? await this.repo.findAssetForUpdate(user.id, assetId, manager) : null;
+      // Lock order (data-model.md): the year's return row, then the asset row
+      if (!isUuid(assetId) || !(await this.repo.findAsset(user.id, assetId, manager))) throw new NotFoundError(`Asset ${assetId} not found`);
+      await this.ledger.lockWritableYear(user.id, year, manager);
+      const asset = await this.repo.findAssetForUpdate(user.id, assetId, manager);
       if (!asset) throw new NotFoundError(`Asset ${assetId} not found`);
       if (year < taxYearOf(asset.acquiredOn)) throw new ValidationError(`${asset.name} was acquired on ${asset.acquiredOn}, after ${taxYearLabel(year)}`);
-      await this.ledger.lockWritableYear(user.id, year, manager);
       const row =
         (await this.repo.findAssetYear(user.id, asset.id, year, manager)) ??
         Object.assign(new TaxAssetYearEntity(), { id: randomUUID(), userId: user.id, assetId: asset.id, startYear: year, usePercent: null, status: 'TO_REVIEW', claimedAmount: null, note: null });

@@ -63,7 +63,7 @@ async function main(): Promise<void> {
     const seeded = await runner.reseed(issuer, anchor, targets);
     for (const s of seeded) {
       console.log(
-        `${s.purpose === 'edge-case' ? 'Edge cases' : 'Seeded'}: ${issuer} / ${s.subject} (${s.key}): ${Object.keys(s.accounts).length} accounts, ${Object.keys(s.categories).length} categories, ${s.transactions} transactions, ${s.transfers} transfers`,
+        `${s.purpose === 'edge-case' ? 'Edge cases' : 'Seeded'}: ${issuer} / ${s.subject} (${s.key}): ${Object.keys(s.accounts).length} accounts, ${Object.keys(s.categories).length} categories, ${s.transactions} transactions, ${s.transfers} transfers${s.taxItems + s.taxAssets > 0 ? `, ${s.taxItems} tax items, ${s.taxAssets} tax assets` : ''}`,
       );
     }
     if (!values['no-valuations']) {

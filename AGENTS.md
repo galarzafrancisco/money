@@ -7,7 +7,8 @@ working in this repository. `CLAUDE.md` imports this file, so keep the rules her
 
 Money is a **multi-user personal investment tracker**: accounts and subaccounts,
 multi-currency cash, FX conversions, transfers, share buys and sells, dividends,
-cost bases per lot, gains, categories and daily valuations. The same business
+cost bases per lot, gains, categories, daily valuations, and an Australian tax
+ledger (proposed claims per financial year, evidence links, depreciating assets). The same business
 services sit behind a REST API (`/api`) and an MCP server (`/mcp`).
 
 ### Product boundaries (non-negotiable)
@@ -133,8 +134,8 @@ against the review guides.
 | Node / web project setup | [best-practices/node.md](docs/best-practices/node.md), [best-practices/web.md](docs/best-practices/web.md) | |
 | Writing docs | | [review-guide](docs/review-guides/review-guide.md), [how-to-guide](docs/review-guides/how-to-guide.md), [best-practice](docs/review-guides/best-practice.md) |
 
-Domain behaviour (categories, transfers, lot selection, valuations, accounting
-assumptions) is documented in [apps/backend/docs/](apps/backend/docs/).
+Domain behaviour (categories, transfers, lot selection, valuations, tax ledger,
+accounting assumptions) is documented in [apps/backend/docs/](apps/backend/docs/).
 
 ## Database migrations
 

@@ -7,7 +7,8 @@ and none of it is tax advice.
 
 The dataset lives in `src/seed/seed-dataset.ts`. The runner (`src/seed/seed-runner.ts`)
 writes it through the same services REST and MCP use (`AccountsService`,
-`CategoriesService`, `TransactionsService`, `TransfersService`), so every
+`CategoriesService`, `TransactionsService`, `TransfersService`,
+`TaxLedgerService`, `TaxAssetsService`), so every
 record passes the usual zod parsing, business rules and ledger replay. It never
 inserts rows directly. The seed code is not part of `AppModule`, and no HTTP
 route or MCP tool can reach it.
@@ -34,7 +35,7 @@ also gives the same dates.
 Expected output (anchor 2026-10-22):
 
 ```
-Seeded: http://localhost:3000 / money-seed-alex (alex): 6 accounts, 4 categories, 34 transactions, 5 transfers
+Seeded: http://localhost:3000 / money-seed-alex (alex): 6 accounts, 4 categories, 36 transactions, 5 transfers, 4 tax items, 1 tax assets
 Seeded: http://localhost:3000 / money-seed-blair (blair): 2 accounts, 1 categories, 4 transactions, 1 transfers
 Seeded: http://localhost:3000 / money-seed-empty (empty): 0 accounts, 0 categories, 0 transactions, 0 transfers
 Edge cases: http://localhost:3000 / money-seed-edge (edge): 8 accounts, 1 categories, 9 transactions, 0 transfers
@@ -61,9 +62,10 @@ It also protects records that are not synthetic:
 
 - Synthetic identities have subjects starting with `money-seed-`, which no
   Taico user has. Their emails end in `.invalid`.
-- Every seeded account and category description starts with `[synthetic seed]`.
+- Every seeded account and category description, and every seeded tax item
+  and tax asset's notes, starts with `[synthetic seed]`.
 - Before it seeds or resets an identity, the runner checks that **every**
-  account and category of that identity carries the marker. If any does not,
+  account, category, tax item and tax asset of that identity carries the marker. If any does not,
   it refuses and touches nothing. `--as` therefore only works on an identity
   with no records, or with records it seeded itself.
 - Resetting a `money-seed-*` identity deletes its user row (records and
@@ -100,7 +102,7 @@ Activity spans 360 days before the anchor to 10 days before it.
 
 | Account | Type | Parent / category | Cash | Holdings |
 |---|---|---|---|---|
-| Everyday Bank | CASH | | 24,490.00 AUD | |
+| Everyday Bank | CASH | | 17,342.00 AUD | |
 | Emergency Fund | CASH | Everyday Bank / `emergency-fund` | 15,000.00 AUD | |
 | Term Deposit 1 | CASH | Everyday Bank / `term-deposits` | 10,350.00 AUD | |
 | ASX Broker | INVESTMENT (AUD) | | 5,487.60 AUD | VAS.AX 35, VGS.AX 15, BHP.AX 15, CBA.AX 30 |
@@ -113,6 +115,16 @@ Activity spans 360 days before the anchor to 10 days before it.
   from the second lot. Cost base 15,855.25 AUD.
 - CBA.AX: FIFO sold 20 of 50, leaving a cost base of 1,671.30 AUD.
 - The transfer to the US broker converts 20,000 AUD at 0.65 with a 10 AUD fee.
+- Tax ([tax.md](tax.md)): a conference ticket (899.00, 50 % intended, linked to
+  its bank withdrawal 45 days before the anchor, with a receipt URL), home
+  internet (960.00 at 20 %), a confirmed tax agent fee and a donation, all
+  manual except the ticket. An AI workstation (6,249.00, paid from the bank 220
+  days before the anchor, first used 7 days later) depreciates by diminishing
+  value over a 4-year effective life at 80 % work use. With anchor 2026-06-30
+  everything falls in FY 2025-26, and the workstation's first year is
+  214/365 days: decline 1,831.90, deduction estimate 1,465.52. Evidence URLs
+  point at `example.invalid`. Item and asset notes carry the seed marker, and
+  the safety check covers them too.
 
 ### Blair: expected results
 

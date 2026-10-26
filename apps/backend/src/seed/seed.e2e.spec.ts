@@ -36,7 +36,7 @@ describe('synthetic seed data', () => {
   it('gives Alex the documented balances and holdings', async () => {
     const a = seeded.alex;
     const s = ALEX.subject;
-    expect(cashOf(await portfolio(s, a.accounts.bank))).toEqual({ AUD: '24490.00' });
+    expect(cashOf(await portfolio(s, a.accounts.bank))).toEqual({ AUD: '17342.00' });
     expect(cashOf(await portfolio(s, a.accounts.emergency))).toEqual({ AUD: '15000.00' });
     expect(cashOf(await portfolio(s, a.accounts.term))).toEqual({ AUD: '10350.00' });
 
@@ -118,6 +118,18 @@ describe('synthetic seed data', () => {
     expect(res.body.valuation.status).toBe('PARTIAL');
   });
 
+  it('gives Alex the example tax journey: linked conference ticket, manual items and a depreciating workstation', async () => {
+    const res = await test.http.get('/api/tax/years/2025-26').set('Authorization', `Bearer ${await tokenFor(ALEX.subject)}`);
+    expect(res.status).toBe(200);
+    const byDescription = Object.fromEntries(res.body.positions.map((p: any) => [p.description, p]));
+    expect(byDescription['AI engineering conference ticket (synthetic)']).toMatchObject({ proposedAmount: '449.50', linkCount: 1, evidenceCount: 1 });
+    expect(byDescription['Home internet, work share (synthetic)']).toMatchObject({ proposedAmount: '192.00', linkCount: 0 });
+    // Diminishing value, 50 %: 6249 × 50 % × 214/365 days = 1831.90; 80 % work use
+    expect(byDescription['Decline in value: AI workstation (synthetic DGX-style) (estimate)']).toMatchObject({ amount: '1831.90', proposedAmount: '1465.52' });
+    const blair = await test.http.get('/api/tax/items').set('Authorization', `Bearer ${await tokenFor('money-seed-blair')}`);
+    expect(blair.body.items).toEqual([]);
+  });
+
   it('reseeds to the same data', async () => {
     const again = await runner.reseed(ISSUER, ANCHOR, SEED_USERS.map((user) => ({ user })));
     const alex = again.find((s) => s.key === 'alex')!;
@@ -147,5 +159,12 @@ describe('synthetic seed data', () => {
     await expect(runner.reset(ISSUER, target)).rejects.toThrow(/not synthetic seed data/);
     const list = await test.http.get('/api/accounts').set('Authorization', `Bearer ${token}`);
     expect(list.body.map((a: any) => a.name)).toEqual(['My real account']);
+  });
+
+  it('refuses an identity whose only records are real tax items', async () => {
+    const token = await tokenFor('real-taxpayer');
+    expect((await test.http.post('/api/tax/items').set('Authorization', `Bearer ${token}`).send({ description: 'My real claim', amount: '10' })).status).toBe(201);
+    await expect(runner.reset(ISSUER, [{ user: ALEX, subject: 'real-taxpayer' }])).rejects.toThrow(/tax item "My real claim"/);
+    expect((await test.http.get('/api/tax/items').set('Authorization', `Bearer ${token}`)).body.items).toHaveLength(1);
   });
 });
