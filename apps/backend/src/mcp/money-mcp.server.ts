@@ -35,6 +35,24 @@ import {
 } from '../transactions/transactions.schemas';
 import { listSplitsSchema, splitAdjustmentSchema } from '../splits/splits.schemas';
 import { SplitsService } from '../splits/splits.service';
+import { TaxAssetsService } from '../tax/tax-assets.service';
+import { TaxLedgerService } from '../tax/tax-ledger.service';
+import { TaxYearsService } from '../tax/tax-years.service';
+import {
+  amendYearShape,
+  assetYearShape,
+  createEvidenceShape,
+  createLinkShape,
+  createTaxAssetShape,
+  createTaxItemShape,
+  fileYearShape,
+  listTaxItemsShape,
+  reportQueryShape,
+  scheduleQueryShape,
+  updateTaxAssetShape,
+  updateTaxItemShape,
+  updateYearShape,
+} from '../tax/tax.schemas';
 import { TransactionsService } from '../transactions/transactions.service';
 import { createTransferShape, listTransfersShape, updateTransferShape } from '../transfers/transfers.schemas';
 import { TransfersService } from '../transfers/transfers.service';
@@ -76,6 +94,9 @@ export class MoneyMcpServerFactory {
     private readonly accountGroups: AccountGroupsService,
     private readonly search: SearchService,
     private readonly splits: SplitsService,
+    private readonly taxLedger: TaxLedgerService,
+    private readonly taxAssets: TaxAssetsService,
+    private readonly taxYears: TaxYearsService,
   ) {}
 
   build(user: CurrentUser): McpServer {
@@ -85,6 +106,7 @@ export class MoneyMcpServerFactory {
         instructions:
           `Personal investment tracking for the signed-in user: named accounts, multi-currency cash, FX conversions, transfers between accounts, share buys and sells, dividends with withholding tax, cost bases per parcel, and gains. ${PERSONAL_TRACKING} ` +
           'Imported Up bank accounts are accounts like any other: list_accounts, get_account and list_transactions include them (hidden ones too, with source "up"). get_accounts_report, get_categories_report and get_dashboard also include imported Up balances once each, with source "up". They show visible accounts by default; the visibility option widens that, and an explicit rootAccountId resolves a hidden Up account (removed Up accounts are always left out). list_up_accounts, list_up_transactions and list_account_groups give Up-specific detail. ' +
+          'Tax: create_tax_item remembers deductions or income for an Australian financial year ("2026-27"); register_tax_asset tracks depreciating assets; get_tax_year_summary shows the year\'s proposed claims and gaps. ' +
           'Amounts are decimal strings. Figures are not tax advice; see the notes returned by get_portfolio.',
       },
     );
@@ -442,6 +464,112 @@ export class MoneyMcpServerFactory {
     );
     tool('unmatch_up_transaction', 'Remove the link between an imported Up transaction and a manual one', write, { upTransactionId }, ({ upTransactionId }) => this.up.unmatch(user, upTransactionId));
     tool('list_up_sync_runs', 'The last 20 Up syncs (audit trail)', read, {}, () => this.up.runs(user));
+
+    // ---- Tax ledger and depreciating assets: tracking aids, not tax advice (docs/tax.md) ----
+    const NOT_ADVICE = 'Tracking aid, not tax advice: Money records intent and estimates; it never decides eligibility.';
+    const itemId = z.string().describe('Tax item ID (from list_tax_items)');
+    const assetId = z.string().describe('Asset ID (from list_tax_assets)');
+    const taxYearArg = z.string().describe('Financial year, e.g. "2026-27" (1 Jul 2026 - 30 Jun 2027)');
+    tool('list_tax_categories', 'Suggested tax categories (slugs) with their usual kind. Any lower-case slug is accepted.', read, {}, async () => this.taxLedger.categories());
+    tool(
+      'create_tax_item',
+      `Remember something for an Australian tax return, e.g. "add this conference ticket to 2026-27, claiming 100% as it relates to my current work". kind DEDUCTION (default), INCOME, OFFSET or OTHER; claimPercent is your intended share; rationale records why. taxYear defaults to the FY of date, else the current FY. Record it before the transaction clears and link it later (link_tax_transaction), or pass links now. A transaction that pays for a registered asset is refused (claim it via the asset's depreciation). ${NOT_ADVICE}`,
+      write,
+      createTaxItemShape,
+      (args) => this.taxLedger.create(user, args),
+    );
+    tool(
+      'list_tax_items',
+      'List tax items with proposedAmount (amount × claimPercent), status, links, evidence and gaps (needs-review, no-evidence, no-transaction, …). Filter by taxYear, kind, category, status, source (linked/unlinked), evidence (present/missing) or text q.',
+      read,
+      listTaxItemsShape,
+      (args) => this.taxLedger.list(user, args),
+    );
+    tool('get_tax_item', 'One tax item with its linked transactions (account, date, amount), evidence URLs and gaps', read, { itemId }, ({ itemId }) => this.taxLedger.get(user, itemId));
+    tool(
+      'update_tax_item',
+      'Change a tax item: claimPercent (e.g. 100 → 50), amount (null: use linked transactions), status (CONFIRMED/EXCLUDED), claimedAmount (what was actually claimed), rationale, notes, or taxYear (moves it). Refused while its year is filed (reopen_tax_year first).',
+      write,
+      { itemId, ...updateTaxItemShape },
+      ({ itemId, ...changes }) => this.taxLedger.update(user, itemId, changes),
+    );
+    tool('delete_tax_item', 'Delete a tax item with its links and evidence. The linked transactions are not touched.', destructive, { itemId }, ({ itemId }) => this.taxLedger.delete(user, itemId));
+    tool(
+      'link_tax_transaction',
+      'Link a tax item (itemId) or asset (assetId) to its source: a Money transaction (transactionId) or an imported Up transaction (upTransactionId; find it with search_transactions). The transaction is referenced, never copied. Refused if it would count a purchase twice (an asset purchase linked to an item, or vice versa); a transaction already on another item needs allowShared: true. Linking the same pair again is a no-op.',
+      write,
+      createLinkShape,
+      (args) => this.taxLedger.link(user, args),
+    );
+    tool('unlink_tax_transaction', 'Remove a link between a tax item or asset and a transaction (the transaction is untouched)', write, { linkId: z.string().describe('Link ID (links[].id of a tax item or asset)') }, ({ linkId }) =>
+      this.taxLedger.unlink(user, linkId),
+    );
+    tool(
+      'add_tax_evidence',
+      'Attach a labelled evidence URL (receipt, invoice, calculation, statement) to a tax item or asset. URLs only: Money stores no files.',
+      write,
+      createEvidenceShape,
+      (args) => this.taxLedger.addEvidence(user, args),
+    );
+    tool('remove_tax_evidence', 'Remove an evidence link', write, { evidenceId: z.string().describe('Evidence ID (evidence[].id)') }, ({ evidenceId }) => this.taxLedger.removeEvidence(user, evidenceId));
+
+    tool(
+      'register_tax_asset',
+      `Register a depreciating asset (e.g. a DGX Spark): cost, acquiredOn, firstUsedOn (decline starts then), method PRIME_COST / DIMINISHING_VALUE / IMMEDIATE, your effectiveLifeYears or ratePercent (never assumed), defaultUsePercent (work share), ownership context, and the payment transaction(s) in links. Returns the year-by-year schedule. ${NOT_ADVICE}`,
+      write,
+      createTaxAssetShape,
+      (args) => this.taxAssets.create(user, args),
+    );
+    tool('list_tax_assets', 'The asset register: cost, method, lifecycle (NOT_IN_USE, IN_USE, WRITTEN_OFF, DISPOSED), adjustable value and this year\'s estimate', read, {}, () => this.taxAssets.list(user));
+    tool('get_tax_asset', 'One asset with links, evidence and its depreciation schedule', read, { assetId, ...scheduleQueryShape }, ({ assetId, ...query }) => this.taxAssets.get(user, assetId, query));
+    tool(
+      'get_depreciation_schedule',
+      'An asset\'s schedule by financial year: days held, opening value, decline, closing value, work-use %, deduction estimate, private portion, any balancing adjustment on disposal, workings, review state, and the filed figure for filed years (driftFromFiled flags a later change).',
+      read,
+      { assetId, ...scheduleQueryShape },
+      ({ assetId, ...query }) => this.taxAssets.schedule(user, assetId, query),
+    );
+    tool(
+      'update_tax_asset',
+      'Change an asset\'s inputs (cost, dates, method, effective life, rate, default use %, ownership) or record its disposal (disposedOn, disposalProceeds). Filed years keep their filed figures.',
+      write,
+      { assetId, ...updateTaxAssetShape },
+      ({ assetId, ...changes }) => this.taxAssets.update(user, assetId, changes),
+    );
+    tool(
+      'set_tax_asset_year',
+      'For one asset and financial year: set the work-use % (null: back to the default), review status, claimedAmount or a note. Refused while that year is filed.',
+      write,
+      { assetId, taxYear: taxYearArg, ...assetYearShape },
+      ({ assetId, taxYear, ...changes }) => this.taxAssets.setYear(user, assetId, taxYear, changes),
+    );
+    tool('delete_tax_asset', 'Delete an asset entered by mistake. Refused once it is in a filed return: record its disposal instead.', destructive, { assetId }, ({ assetId }) => this.taxAssets.delete(user, assetId));
+
+    tool('list_tax_years', 'Financial years with positions: status (PREPARING, FILED, AMENDING), totals per kind, items to review, gaps, latest filing', read, {}, () => this.taxYears.list(user));
+    tool(
+      'get_tax_year_summary',
+      'A financial year\'s proposed tax claims: every position (tax items plus asset depreciation), totals per kind and category (proposed, confirmed, claimed), outstanding review/evidence gaps, warnings and filing history.',
+      read,
+      { taxYear: taxYearArg },
+      ({ taxYear }) => this.taxYears.summary(user, taxYear),
+    );
+    tool('get_tax_year_report', 'A copyable Markdown summary and a CSV of a year\'s positions, live or for a filed version', read, { taxYear: taxYearArg, ...reportQueryShape }, ({ taxYear, ...query }) =>
+      this.taxYears.report(user, taxYear, query),
+    );
+    tool('update_tax_year', 'Edit a year\'s preparation notes', write, { taxYear: taxYearArg, ...updateYearShape }, ({ taxYear, ...input }) => this.taxYears.updateNotes(user, taxYear, input));
+    tool(
+      'file_tax_year',
+      'Record that the year\'s return (or an amendment) was lodged elsewhere: stores an immutable snapshot of every position and total, then the year is read-only. Refused while positions are TO_REVIEW unless allowUnreviewed. Money does not lodge anything.',
+      write,
+      { taxYear: taxYearArg, ...fileYearShape },
+      ({ taxYear, ...input }) => this.taxYears.file(user, taxYear, input),
+    );
+    tool('reopen_tax_year', 'Reopen a filed year for amendment, with a reason. Earlier filings stay as they were; filing again stores an AMENDMENT version.', write, { taxYear: taxYearArg, ...amendYearShape }, ({ taxYear, ...input }) =>
+      this.taxYears.amend(user, taxYear, input),
+    );
+    tool('get_tax_filing', 'The full snapshot of one filed version of a year (1 = original)', read, { taxYear: taxYearArg, version: z.string().describe('Filing version, e.g. "1"') }, ({ taxYear, version }) =>
+      this.taxYears.filing(user, taxYear, version),
+    );
 
     return server;
   }
