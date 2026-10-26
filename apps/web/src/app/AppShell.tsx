@@ -8,6 +8,7 @@ const APP_NAV = [
   { to: '/dashboard', label: 'Dashboard' },
   { to: '/accounts', label: 'Accounts' },
   { to: '/search', label: 'Search' },
+  { to: '/tax', label: 'Tax' },
   { to: '/categories', label: 'Categories' },
   { to: '/connections', label: 'Connections' },
 ];
