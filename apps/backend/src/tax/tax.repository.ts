@@ -216,6 +216,18 @@ export class TaxRepository {
     return rows.map(toLink);
   }
 
+  /**
+   * Serializes link writers on one source transaction until the caller's
+   * transaction ends, so the double-counting checks in addLinkTo see every
+   * committed link to it. A transaction-scoped advisory lock: it touches no
+   * row, so it sits outside the row lock order (taken last, one source at a
+   * time, in a stable order when several are linked together).
+   */
+  async lockSource(userId: string, source: { transactionId?: string; upTransactionId?: string }, manager: EntityManager): Promise<void> {
+    const key = source.transactionId ? `tax_source:${userId}:tx:${source.transactionId}` : `tax_source:${userId}:up:${source.upTransactionId}`;
+    await manager.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [key]);
+  }
+
   async findLink(userId: string, id: string, manager: EntityManager = this.uow.manager): Promise<LinkRow | null> {
     const [row]: RawLink[] = await manager.query(`${LINK_SELECT} WHERE l.user_id = $1 AND l.id = $2`, [userId, id]);
     return row ? toLink(row) : null;

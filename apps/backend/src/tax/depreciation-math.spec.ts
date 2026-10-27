@@ -87,6 +87,29 @@ describe('depreciation schedule', () => {
     expect(s.endReason).toBe('DISPOSED');
   });
 
+  it('IMMEDIATE written off in one year and sold in a later year still gets the disposal year and its balancing adjustment', () => {
+    const input = { ...base, method: 'IMMEDIATE' as const, cost: '3000', startDate: '2025-09-01', effectiveLifeYears: null, defaultUsePercent: '80', disposedOn: '2027-03-15', disposalProceeds: '1000' };
+    const s = depreciationSchedule(input, 2030);
+    expect(s.rows.map((r) => [r.taxYear, r.decline, r.closingValue])).toEqual([
+      ['2025-26', '3000.00', '0.00'],
+      ['2026-27', '0.00', '0.00'],
+    ]);
+    expect(s.rows[1]).toMatchObject({ periodStart: '2026-07-01', periodEnd: '2027-03-15', openingValue: '0.00', deduction: '0.00' });
+    expect(s.rows[1].balancingAdjustment).toEqual({ terminationValue: '1000.00', adjustableValue: '0.00', amount: '1000.00', taxableAmount: '800.00' });
+    expect(s.endReason).toBe('DISPOSED');
+    // The default horizon reaches the disposal year even when it is after the current year
+    expect(defaultHorizon(input, 2025)).toBe(2026);
+  });
+
+  it('prime cost written off and sold years later: no rows for the empty years between, one disposal row', () => {
+    const s = depreciationSchedule({ ...base, disposedOn: '2032-08-01', disposalProceeds: '50' }, 2040);
+    expect(s.rows.map((r) => r.taxYear)).toEqual(['2026-27', '2027-28', '2028-29', '2029-30', '2032-33']);
+    expect(s.rows.at(-1)?.balancingAdjustment).toMatchObject({ adjustableValue: '0.00', amount: '50.00', taxableAmount: '50.00' });
+    expect(s.endReason).toBe('DISPOSED');
+    // A horizon before the disposal year stops at the write-off
+    expect(depreciationSchedule({ ...base, disposedOn: '2032-08-01', disposalProceeds: '50' }, 2031).endReason).toBe('WRITTEN_OFF');
+  });
+
   it('a rate override wins over effective life', () => {
     const s = depreciationSchedule({ ...base, ratePercent: '40', effectiveLifeYears: null }, 2026);
     expect(s.rateSource).toBe('override');

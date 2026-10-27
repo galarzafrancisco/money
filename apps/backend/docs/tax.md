@@ -86,8 +86,15 @@ To keep a purchase from being counted twice:
   claimed through its depreciation, never also as an expense. `allowShared`
   doesn't override this.
 - A transaction already linked to another item needs `allowShared: true`, for
-  example one invoice split over two claims. Both items then show
-  `shared-transaction`, and the year summary warns about it.
+  example one invoice split over two claims (and likewise for two assets).
+  Both then show `shared-transaction` on every position they produce, in every
+  year, and the year summary warns about it.
+
+These checks are serialized per source transaction: each link write takes a
+transaction-scoped advisory lock on the transaction it links (after its row
+locks; see the lock order in [data-model.md](data-model.md#lock-order)), so two
+concurrent requests linking the same transaction to an item and to an asset
+can't both pass the check. One gets `409`.
 
 ### Evidence
 
@@ -119,8 +126,8 @@ For each financial year from the year of first use:
   assertion that it qualifies (e.g. a low-cost item). Money doesn't check.
 - Each year is rounded to cents (half up) and capped at the remaining value.
   The schedule ends when the asset is written off, at disposal, or at the
-  horizon (`throughYear`, default: when a prime-cost write-off would finish, or
-  the current year if later).
+  horizon (`throughYear`, default: when a prime-cost write-off would finish,
+  the disposal year, or the current year, whichever is latest).
 - **Work use**: the asset declines in full every year. The estimated
   deduction is decline × that year's use % (`PUT
   /api/tax/assets/:id/years/:taxYear` with `usePercent`, else the default),
@@ -129,7 +136,12 @@ For each financial year from the year of first use:
 - **Disposal**: in the disposal year, decline runs to the disposal date, then
   the balancing adjustment = termination value − adjustable value. Positive is
   an estimated assessable amount (an `INCOME` position), negative an estimated
-  deduction. Both are scaled by work use.
+  deduction. Both are scaled by work use. If the asset was already written off
+  in an earlier year (e.g. `IMMEDIATE`, or prime cost run to zero), the
+  schedule skips the empty years in between and adds one row for the disposal
+  year: no decline, an adjustable value of 0, and the balancing adjustment on
+  the full termination value. That year's summary then has only the balancing
+  adjustment position.
 
 Each row carries `workings`, a sentence showing the numbers, so you can check
 it by hand. The output records `rulesVersion`. Changing the formulas means a new
@@ -155,21 +167,41 @@ something, plus the current one.
 copyable Markdown summary and a CSV with one row per position. Add `?version=1`
 for a filed version.
 
+For a `FILED` year the summary answers with the latest filing, not with a
+recomputation: `basis: "FILED"` and `filedVersion` say so, and `positions`,
+`totals` and `gaps` are the snapshot's. What the live records give now is kept
+apart under `live` (positions and totals), and `drift` lists every difference
+from the filing: positions `added` or `removed`, and `changed` ones with the
+`fields` that differ (figures such as `amount` or `proposedAmount`, or the
+supporting `sources`, `evidence`, `asset` inputs, `rationale`, `notes`). Any
+drift adds a warning. While a year is `PREPARING` or `AMENDING`, `basis` is
+`LIVE` and `drift` compares the live figures with the latest filing, if any,
+so an amendment shows what it changes. The report for a filed year is the
+latest filing too, with the drift warning on top.
+
 Filing records that you lodged the return elsewhere:
 
 1. `POST /api/tax/years/:taxYear/filings { filedOn, reference?, note? }`
    (`file_tax_year`). It is refused (`409`, `details.positions`) while
    positions are `TO_REVIEW`, unless `allowUnreviewed: true`. It stores an
    immutable jsonb snapshot of every position and total, and the year becomes
-   `FILED`.
+   `FILED`. Each snapshot position carries a `detail`: its rationale and
+   notes, the linked source transactions as they stood (account, date,
+   amount, description, Up status), the labelled evidence URLs, and for asset
+   positions the asset inputs (cost, dates, method, effective life or rate,
+   ownership, disposal) and the schedule row's opening/closing values and
+   days held. So a filing stays complete after evidence is removed, a link is
+   undone, a transaction is deleted or an asset is edited.
 2. A filed year is read-only. Creating, editing, moving or deleting its items,
    their links and evidence, and its asset-year records answers `409`. An
    asset that appears in a filed snapshot can't be deleted: record its
    disposal instead.
-3. Assets themselves stay editable, because they span years. In a filed year,
-   the schedule row shows `filed.deduction` from the snapshot next to the
-   recomputed figure, and sets `driftFromFiled` when they differ. History is
-   never rewritten.
+3. Assets, linked transactions and asset evidence stay editable, because
+   they span years or live outside the tax ledger. The filed year keeps
+   answering with its snapshot and reports the difference as `drift` (above).
+   In an asset's schedule, the row for a filed year shows `filed.deduction`
+   from the snapshot next to the recomputed figure, and sets `driftFromFiled`
+   when they differ. History is never rewritten.
 4. `POST /api/tax/years/:taxYear/amendment { reason }` (`reopen_tax_year`)
    moves the year to `AMENDING`. Filing again stores version 2 (`AMENDMENT`,
    with the reason). Earlier versions are kept unchanged:
@@ -244,9 +276,7 @@ The same journey runs end to end in `src/tax.e2e.spec.ts`.
 - Australia only (`jurisdiction` is stored as `AU` so another one can be added
   later). No investment CGT, lot matching or dividend tax automation: those
   belong to a later phase.
-- The link checks that prevent double counting aren't serialized across
-  owners. Two concurrent requests linking the same transaction to an item and
-  to an asset could both succeed. The item and the asset would then show
-  `shared-transaction`, and the year summary would warn about it.
+- Year summaries are computed on read (and a filed year's drift is
+  recomputed on every read).
 - Amounts in another currency are kept as entered and flagged. Converting them
   to AUD is up to you.

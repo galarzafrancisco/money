@@ -1,4 +1,4 @@
-import type { TaxCategoryTotal, TaxFiling, TaxPosition } from '@money/client';
+import type { TaxCategoryTotal, TaxDriftLine, TaxFiling, TaxPosition } from '@money/client';
 import { useState } from 'react';
 import { useParams } from 'react-router';
 import { Amount, Button, ButtonLink, Callout, Card, Checkbox, Form, Loading, Row, Stack, Table, Text, TextAreaField, TextField, type Column } from '../../ui';
@@ -24,6 +24,23 @@ const positionColumns: Column<TaxPosition>[] = [
   { key: 'proposed', header: 'Proposed', numeric: true, render: (p) => <Amount value={p.proposedAmount} currency={p.currency} /> },
   { key: 'claimed', header: 'Claimed', numeric: true, render: (p) => <Amount value={p.claimedAmount} currency={p.currency} /> },
   { key: 'status', header: 'Status', render: (p) => <ReviewBadge status={p.status} /> },
+];
+
+const CHANGE_LABELS: Record<TaxDriftLine['change'], string> = { added: 'New since filing', removed: 'No longer computed', changed: 'Changed' };
+
+const driftColumns: Column<TaxDriftLine>[] = [
+  {
+    key: 'description',
+    header: 'Position',
+    render: (d) => (
+      <Stack gap={1}>
+        <span>{d.description}</span>
+        <Text size="xs" tone="muted" as="span">{CHANGE_LABELS[d.change]}{d.fields.length > 0 ? `: ${d.fields.join(', ')}` : ''}</Text>
+      </Stack>
+    ),
+  },
+  { key: 'filed', header: 'Filed proposed', numeric: true, render: (d) => <Amount value={d.filedProposed} /> },
+  { key: 'live', header: 'Live proposed', numeric: true, render: (d) => <Amount value={d.liveProposed} /> },
 ];
 
 const categoryColumns: Column<TaxCategoryTotal>[] = [
@@ -169,7 +186,12 @@ export function TaxYearPage() {
   return (
     <>
       {header(s)}
-      <Card title="Totals">
+      {s.basis === 'FILED' && (
+        <Text size="sm" tone="muted">
+          Showing the figures as filed (version {s.filedVersion}). Changes to the records since then are listed under “Changes since filing”, not applied here.
+        </Text>
+      )}
+      <Card title={s.basis === 'FILED' ? `Totals as filed (version ${s.filedVersion})` : 'Totals'}>
         {s.totals.byKind.length === 0 ? (
           <Text tone="muted" size="sm">Nothing recorded for this year.</Text>
         ) : (
@@ -196,7 +218,7 @@ export function TaxYearPage() {
           </ul>
         </Callout>
       )}
-      <Card title="Positions" flush>
+      <Card title={s.basis === 'FILED' ? 'Positions as filed' : 'Positions'} flush>
         {s.positions.length > 0 ? (
           <Table<TaxPosition> label={`Positions for ${taxYear}`} columns={positionColumns} rows={s.positions} rowKey={(p) => p.id} />
         ) : (
@@ -206,6 +228,11 @@ export function TaxYearPage() {
       {s.totals.byCategory.length > 0 && (
         <Card title="By category" flush>
           <Table<TaxCategoryTotal> label="Totals by category" columns={categoryColumns} rows={s.totals.byCategory} rowKey={(c) => `${c.kind}|${c.category}|${c.currency}`} />
+        </Card>
+      )}
+      {s.drift.length > 0 && (
+        <Card title={s.basis === 'FILED' ? 'Changes since filing' : 'Changes since the last filing'} flush>
+          <Table<TaxDriftLine> label="Differences from the latest filing" columns={driftColumns} rows={s.drift} rowKey={(d) => `${d.change}|${d.positionId}`} />
         </Card>
       )}
       <FilingCard taxYear={s.taxYear} status={s.status} toReview={toReview} />

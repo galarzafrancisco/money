@@ -8,6 +8,8 @@ export type ReportInput = {
   positions: readonly PositionView[];
   totals: { byKind: readonly TotalLine[]; byCategory: readonly CategoryTotalLine[] };
   filedVersion?: number | null;
+  /** Shown under the status line, e.g. that the live records drifted from the filed figures */
+  warnings?: readonly string[];
 };
 
 const KIND_LABEL: Record<string, string> = { DEDUCTION: 'Deductions', INCOME: 'Income', OFFSET: 'Offsets', OTHER: 'Other' };
@@ -32,6 +34,10 @@ export function renderMarkdown(input: ReportInput): string {
   out.push(`# Tax summary FY ${input.taxYear} (${input.period.start} to ${input.period.end})`);
   out.push('');
   out.push(`Status: ${input.status}${input.filedVersion ? ` (filed version ${input.filedVersion})` : ''}. Tracking aid only, not tax advice: proposed figures are your own intentions and estimates.`);
+  for (const w of input.warnings ?? []) {
+    out.push('');
+    out.push(`> ${w}`);
+  }
   out.push('');
   out.push('## Totals');
   out.push('');

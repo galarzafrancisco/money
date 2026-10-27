@@ -67,6 +67,8 @@ function summary(overrides: Partial<TaxYearSummary> = {}): TaxYearSummary {
     jurisdiction: 'AU',
     period: { start: '2026-07-01', end: '2027-06-30', days: 365 },
     status: 'PREPARING',
+    basis: 'LIVE',
+    filedVersion: null,
     notes: null,
     amendingReason: null,
     positions,
@@ -80,6 +82,8 @@ function summary(overrides: Partial<TaxYearSummary> = {}): TaxYearSummary {
     gaps: { counts: { 'needs-review': 2, 'no-evidence': 1 }, positions: [] },
     gapDescriptions: { 'no-evidence': 'No evidence link (receipt, invoice or calculation)' },
     warnings: [],
+    live: null,
+    drift: [],
     filings: [],
     rulesVersion: 'au-decline-in-value/2026.1',
     disclaimers: [],
@@ -276,10 +280,15 @@ describe('tax', () => {
 
   it('records a lodgment and offers amendment once filed', async () => {
     const client = fakeClient();
-    client.tax.getTaxYear.mockResolvedValue(summary({ status: 'FILED', filings: [{ id: 'f1', version: 1, kind: 'ORIGINAL', filedOn: '2027-10-01', reference: 'R-1', note: null, amendmentReason: null, rulesVersion: 'x', positionCount: 2, totals: { byKind: [] }, createdAt: now }] }));
+    client.tax.getTaxYear.mockResolvedValue(summary({ status: 'FILED', basis: 'FILED', filedVersion: 1, drift: [{ positionId: 'asset:a1:2026-27', description: 'Decline in value: NVIDIA DGX Spark (estimate)', change: 'changed', fields: ['amount', 'proposedAmount', 'asset'], filedProposed: '1276.34', liveProposed: '1200.00' }], filings: [{ id: 'f1', version: 1, kind: 'ORIGINAL', filedOn: '2027-10-01', reference: 'R-1', note: null, amendmentReason: null, rulesVersion: 'x', positionCount: 2, totals: { byKind: [] }, createdAt: now }] }));
     client.tax.reopenTaxYear.mockResolvedValue(summary({ status: 'AMENDING' }));
     const { user } = renderApp('/tax/years/2026-27', { client });
     expect(await screen.findByRole('region', { name: 'Filing history' })).toBeInTheDocument();
+    // A filed year shows its filed figures, and lists later changes apart
+    expect(screen.getByRole('heading', { name: 'Totals as filed (version 1)' })).toBeInTheDocument();
+    const drift = screen.getByRole('region', { name: 'Differences from the latest filing' });
+    expect(drift).toHaveTextContent('Changed: amount, proposedAmount, asset');
+    expect(drift).toHaveTextContent('1,200.00');
     await user.type(screen.getByLabelText('Reason for amending'), 'Missed a donation');
     await user.click(screen.getByRole('button', { name: 'Reopen for amendment' }));
     expect(client.tax.reopenTaxYear).toHaveBeenCalledWith({ taxYear: '2026-27', body: { reason: 'Missed a donation' } });

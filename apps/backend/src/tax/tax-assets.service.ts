@@ -8,8 +8,8 @@ import { UnitOfWork } from '../database/unit-of-work';
 import type { CurrentUser } from '../users/users.service';
 import { defaultHorizon, depreciationSchedule, type DepreciationInput, type DepreciationSchedule, type ScheduleRow } from './depreciation-math';
 import { taxYearLabel, taxYearOf, todayInAustralia } from './financial-year';
-import { evidenceView, TaxLedgerService } from './tax-ledger.service';
-import { assetPositions, HOME_CURRENCY, linkView, money, moneyOrNull, percentText, type EvidenceView, type GapCode, type LinkView, type PositionView } from './tax-views';
+import { evidenceView, sortedRefs, TaxLedgerService } from './tax-ledger.service';
+import { assetPositions, HOME_CURRENCY, linkView, money, moneyOrNull, percentText, type EvidenceView, type DetailedPosition, type GapCode, type LinkView } from './tax-views';
 import { TaxAssetEntity, TaxAssetYearEntity, type TaxReturnFilingEntity } from './tax.entities';
 import { TaxRepository } from './tax.repository';
 import {
@@ -112,7 +112,7 @@ export class TaxAssetsService {
     assertConsistent(asset);
     await this.uow.run(async (manager) => {
       await this.repo.saveAsset(asset, manager);
-      for (const ref of data.links ?? []) await this.ledger.addLinkTo(user.id, { assetId: asset.id }, ref, { allowShared: false, note: null }, manager);
+      for (const ref of sortedRefs(data.links ?? [])) await this.ledger.addLinkTo(user.id, { assetId: asset.id }, ref, { allowShared: false, note: null }, manager);
       for (const e of data.evidence ?? []) await this.repo.addEvidence({ userId: user.id, itemId: null, assetId: asset.id, label: e.label, url: e.url, kind: e.kind ?? 'OTHER' }, manager);
     });
     return this.get(user, asset.id);
@@ -190,13 +190,27 @@ export class TaxAssetsService {
   // ---- shared with TaxYearsService ----
 
   /** Every asset's positions for one year (depreciation and any balancing adjustment). Inside a transaction, pass its manager. */
-  async positionsFor(userId: string, startYear: number, manager?: EntityManager): Promise<PositionView[]> {
+  async positionsFor(userId: string, startYear: number, manager?: EntityManager): Promise<DetailedPosition[]> {
     const assets = await this.repo.listAssets(userId, manager);
     const views = await this.views(userId, assets, { throughYear: startYear }, manager);
     return views.flatMap((v) => {
       const row = v.schedule.rows.find((r) => r.startYear === startYear);
       if (!row) return [];
-      return assetPositions({ id: v.id, name: v.name, category: v.category, currency: v.currency, linkCount: v.links.length, evidenceCount: v.evidence.length }, row, { status: row.review.status, claimedAmount: row.review.claimedAmount });
+      const fact = {
+        name: v.name,
+        description: v.description,
+        cost: v.cost,
+        acquiredOn: v.acquiredOn,
+        firstUsedOn: v.firstUsedOn,
+        method: v.method,
+        effectiveLifeYears: v.effectiveLifeYears,
+        ratePercent: v.ratePercent,
+        ownership: v.ownership,
+        disposedOn: v.disposedOn,
+        disposalProceeds: v.disposalProceeds,
+        notes: v.notes,
+      };
+      return assetPositions({ id: v.id, name: v.name, category: v.category, currency: v.currency, links: v.links, evidence: v.evidence, notes: v.notes, fact }, row, { status: row.review.status, claimedAmount: row.review.claimedAmount, note: row.review.note });
     });
   }
 

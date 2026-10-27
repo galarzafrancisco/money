@@ -208,6 +208,12 @@ describe('Tax ledger and depreciating assets', () => {
     const reopened = (await as(tokenA).post('/api/tax/years/2025-26/amendment', { reason: 'Missed a donation' }).expect(200)).body;
     expect(reopened).toMatchObject({ status: 'AMENDING', amendingReason: 'Missed a donation' });
     await as(tokenA).post('/api/tax/items', { description: 'Donation', taxYear: '2025-26', amount: '50', category: 'donations', status: 'CONFIRMED', claimedAmount: '50' }).expect(201);
+    // While amending, the live figures lead and drift lists the changes since the last filing
+    const amending = (await as(tokenA).get('/api/tax/years/2025-26').expect(200)).body;
+    expect(amending).toMatchObject({ basis: 'LIVE', filedVersion: null, live: null });
+    expect(amending.drift).toEqual([expect.objectContaining({ change: 'added', description: 'Donation', liveProposed: '50.00' })]);
+    // A never-filed year has no drift
+    expect((await as(tokenA).get('/api/tax/years/2026-27').expect(200)).body).toMatchObject({ basis: 'LIVE', drift: [] });
     const amended = (await as(tokenA).post('/api/tax/years/2025-26/filings', { filedOn: '2026-11-01' }).expect(201)).body;
     expect(amended.filings.map((f: any) => [f.version, f.kind, f.positionCount, f.amendmentReason])).toEqual([
       [1, 'ORIGINAL', 2, null],
@@ -221,6 +227,103 @@ describe('Tax ledger and depreciating assets', () => {
     const live = (await as(tokenA).get('/api/tax/years/2025-26/report').expect(200)).body;
     expect(live.markdown).toContain('Donation');
     expect(live.csv.split('\n')[0]).toBe('taxYear,kind,category,description,date,currency,amount,percent,proposedAmount,claimedAmount,status,source,links,evidence,gaps');
+  });
+
+  it('a filed year answers with its filing; later asset and source changes show as drift, not as new filed figures', async () => {
+    const before = (await as(tokenA).get('/api/tax/years/2025-26').expect(200)).body;
+    expect(before).toMatchObject({ status: 'FILED', basis: 'FILED', filedVersion: 2, drift: [] });
+    const filedTotals = before.totals;
+
+    const spark = (await as(tokenA).get(`/api/tax/assets/${sparkId}`).expect(200)).body;
+    await as(tokenA).patch(`/api/tax/assets/${sparkId}`, { cost: '6000', name: 'DGX Spark (renamed)' }).expect(200);
+    await as(tokenA).patch(`/api/transactions/${sparkTx.id}`, { description: 'Edited later' }).expect(200);
+    await as(tokenA).delete(`/api/tax/evidence/${spark.evidence[0].id}`).expect(200);
+
+    const s = (await as(tokenA).get('/api/tax/years/2025-26').expect(200)).body;
+    expect(s.basis).toBe('FILED');
+    expect(s.totals).toEqual(filedTotals);
+    const filedAsset = s.positions.find((p: any) => p.source === 'ASSET');
+    expect(filedAsset).toMatchObject({ description: 'Decline in value: NVIDIA DGX Spark (estimate)', proposedAmount: '1595.63', evidenceCount: 1 });
+    expect(s.live.positions.find((p: any) => p.source === 'ASSET')).toMatchObject({ description: 'Decline in value: DGX Spark (renamed) (estimate)', evidenceCount: 0 });
+    expect(s.live.totals.byKind[0].proposed).not.toBe(filedTotals.byKind[0].proposed);
+    const line = s.drift.find((d: any) => d.positionId === filedAsset.id);
+    expect(line).toMatchObject({ change: 'changed', filedProposed: '1595.63' });
+    expect(line.fields).toEqual(expect.arrayContaining(['description', 'amount', 'proposedAmount', 'sources', 'evidence', 'asset']));
+    expect(s.warnings[0]).toContain('changed since filed version 2');
+    // The copyable report for the filed year is the filing, with the drift flagged
+    const report = (await as(tokenA).get('/api/tax/years/2025-26/report').expect(200)).body;
+    expect(report.version).toBe(2);
+    expect(report.markdown).toContain('1595.63');
+    expect(report.markdown).toContain('changed since filed version 2');
+
+    // Each filing keeps what supported it, however the live records changed
+    const v1 = (await as(tokenA).get('/api/tax/years/2025-26/filings/1').expect(200)).body;
+    const asset = v1.positions.find((p: any) => p.source === 'ASSET');
+    expect(asset.detail.evidence).toEqual([{ label: 'Invoice', url: 'https://drive.example.com/invoices/dgx.pdf', kind: 'INVOICE' }]);
+    expect(asset.detail.sources).toEqual([expect.objectContaining({ transactionId: sparkTx.id, description: 'DGX Spark', amount: '6249.00', accountName: 'Everyday' })]);
+    expect(asset.detail.asset).toMatchObject({ name: 'NVIDIA DGX Spark', cost: '6249.00', method: 'DIMINISHING_VALUE', effectiveLifeYears: '4', firstUsedOn: '2025-11-10', openingValue: '6249.00', daysHeld: 233 });
+    const donation = (await as(tokenA).get('/api/tax/years/2025-26/filings/2').expect(200)).body.positions.find((p: any) => p.description === 'Donation');
+    expect(donation.detail).toMatchObject({ rationale: null, sources: [], evidence: [], asset: null });
+
+    // Unlinking the source after filing: the filing still names it
+    const linkId = (await as(tokenA).get(`/api/tax/assets/${sparkId}`).expect(200)).body.links[0].id;
+    await as(tokenA).delete(`/api/tax/links/${linkId}`).expect(200);
+    const v1again = (await as(tokenA).get('/api/tax/years/2025-26/filings/1').expect(200)).body;
+    expect(v1again.positions.find((p: any) => p.source === 'ASSET').detail.sources).toHaveLength(1);
+
+    // Put the live records back
+    await as(tokenA).post('/api/tax/links', { assetId: sparkId, transactionId: sparkTx.id }).expect(201);
+    await as(tokenA).patch(`/api/transactions/${sparkTx.id}`, { description: 'DGX Spark' }).expect(200);
+    await as(tokenA).post('/api/tax/evidence', { assetId: sparkId, label: 'Invoice', url: 'https://drive.example.com/invoices/dgx.pdf', kind: 'INVOICE' }).expect(201);
+    await as(tokenA).patch(`/api/tax/assets/${sparkId}`, { cost: '6249', name: 'NVIDIA DGX Spark' }).expect(200);
+    expect((await as(tokenA).get('/api/tax/years/2025-26').expect(200)).body.drift).toEqual([]);
+  });
+
+  it('serializes linking one transaction from concurrent requests: exactly one of an item and an asset wins', async () => {
+    const tx = (await as(tokenA).post(`/api/accounts/${bank.id}/transactions`, { type: 'WITHDRAWAL', date: '2026-08-05', currency: 'AUD', amount: '450' }).expect(201)).body;
+    const item = (await as(tokenA).post('/api/tax/items', { description: 'Race item', amount: '450' }).expect(201)).body;
+    const asset = (await as(tokenA).post('/api/tax/assets', { name: 'Race asset', cost: '450', acquiredOn: '2026-08-05', firstUsedOn: '2026-08-05', method: 'IMMEDIATE' }).expect(201)).body;
+    const results = await Promise.all([
+      as(tokenA).post('/api/tax/links', { itemId: item.id, transactionId: tx.id }),
+      as(tokenA).post('/api/tax/links', { assetId: asset.id, transactionId: tx.id }),
+    ]);
+    expect(results.map((r) => r.status).sort()).toEqual([201, 409]);
+    await as(tokenA).delete(`/api/tax/items/${item.id}`).expect(200);
+    await as(tokenA).delete(`/api/tax/assets/${asset.id}`).expect(200);
+    await as(tokenA).delete(`/api/transactions/${tx.id}`).expect(200);
+  });
+
+  it('flags a transaction shared by two assets on every year\'s asset positions', async () => {
+    const tx = (await as(tokenA).post(`/api/accounts/${bank.id}/transactions`, { type: 'WITHDRAWAL', date: '2026-08-06', currency: 'AUD', amount: '3000' }).expect(201)).body;
+    const a = (await as(tokenA).post('/api/tax/assets', { name: 'Desk', cost: '1000', acquiredOn: '2026-08-06', firstUsedOn: '2026-08-06', method: 'PRIME_COST', effectiveLifeYears: '5', links: [{ transactionId: tx.id }] }).expect(201)).body;
+    const b = (await as(tokenA).post('/api/tax/assets', { name: 'Chair', cost: '2000', acquiredOn: '2026-08-06', firstUsedOn: '2026-08-06', method: 'PRIME_COST', effectiveLifeYears: '5' }).expect(201)).body;
+    await as(tokenA).post('/api/tax/links', { assetId: b.id, transactionId: tx.id }).expect(409);
+    await as(tokenA).post('/api/tax/links', { assetId: b.id, transactionId: tx.id, allowShared: true }).expect(201);
+    for (const year of ['2026-27', '2027-28']) {
+      const s = (await as(tokenA).get(`/api/tax/years/${year}`).expect(200)).body;
+      for (const id of [a.id, b.id]) expect(s.positions.find((p: any) => p.id === `asset:${id}:${year}`).gaps).toContain('shared-transaction');
+      expect(s.warnings.join(' ')).toContain('share a linked transaction');
+    }
+    for (const id of [a.id, b.id]) await as(tokenA).delete(`/api/tax/assets/${id}`).expect(200);
+    await as(tokenA).delete(`/api/transactions/${tx.id}`).expect(200);
+  });
+
+  it('an asset written off and sold in a later year still reports the sale\'s balancing adjustment', async () => {
+    const asset = (await as(tokenA).post('/api/tax/assets', { name: 'Camera', cost: '3000', acquiredOn: '2024-07-10', firstUsedOn: '2024-07-10', method: 'IMMEDIATE', defaultUsePercent: '80' }).expect(201)).body;
+    const sold = (await as(tokenA).patch(`/api/tax/assets/${asset.id}`, { disposedOn: '2026-03-15', disposalProceeds: '1000' }).expect(200)).body;
+    expect(sold.lifecycle).toBe('DISPOSED');
+    expect(sold.schedule.rows.map((r: any) => [r.taxYear, r.decline])).toEqual([
+      ['2024-25', '3000.00'],
+      ['2025-26', '0.00'],
+    ]);
+    // 2025-26 is filed, so the sale shows in its live recomputation and as drift
+    const filed = (await as(tokenA).get('/api/tax/years/2025-26').expect(200)).body;
+    const camera = filed.live.positions.filter((p: any) => p.assetId === asset.id);
+    expect(camera).toEqual([expect.objectContaining({ id: `asset:${asset.id}:2025-26:balancing`, kind: 'INCOME', amount: '1000.00', proposedAmount: '800.00' })]);
+    expect(filed.drift).toEqual([expect.objectContaining({ change: 'added', positionId: `asset:${asset.id}:2025-26:balancing` })]);
+    const years = (await as(tokenA).get('/api/tax/years').expect(200)).body.years.map((y: any) => y.taxYear);
+    expect(years).toEqual(expect.arrayContaining(['2024-25', '2025-26']));
+    await as(tokenA).delete(`/api/tax/assets/${asset.id}`).expect(200);
   });
 
   it('filters and searches items', async () => {

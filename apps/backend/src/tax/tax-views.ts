@@ -215,7 +215,70 @@ export type PositionView = {
   workings: string | null;
 };
 
-export function itemPosition(item: TaxItemView): PositionView {
+/** A source transaction as it stood when the position was computed: kept in filing snapshots */
+export type SourceFact = Pick<LinkView, 'source' | 'transactionId' | 'upTransactionId' | 'accountName' | 'date' | 'currency' | 'amount' | 'direction' | 'description' | 'status' | 'deleted' | 'note'>;
+export type EvidenceFact = Pick<EvidenceView, 'label' | 'url' | 'kind'>;
+
+/** The asset facts and schedule row behind an asset position */
+export type AssetFact = {
+  name: string;
+  description: string | null;
+  cost: string;
+  acquiredOn: string;
+  firstUsedOn: string | null;
+  method: string;
+  effectiveLifeYears: string | null;
+  ratePercent: string | null;
+  ownership: string | null;
+  disposedOn: string | null;
+  disposalProceeds: string | null;
+  notes: string | null;
+  openingValue: string;
+  closingValue: string;
+  daysHeld: number;
+  daysInYear: number;
+  usePercentSource: 'year' | 'default';
+  reviewNote: string | null;
+};
+
+/**
+ * What supported a position: its rationale and notes, the source
+ * transactions, the evidence URLs and (assets) the inputs and schedule row.
+ * Filing snapshots store it so a filed return can be revisited after the live
+ * records change or are deleted.
+ */
+export type PositionDetail = {
+  rationale: string | null;
+  notes: string | null;
+  sources: SourceFact[];
+  evidence: EvidenceFact[];
+  asset: AssetFact | null;
+};
+
+export type DetailedPosition = PositionView & { detail: PositionDetail };
+
+export const sourceFact = (l: LinkView): SourceFact => ({
+  source: l.source,
+  transactionId: l.transactionId,
+  upTransactionId: l.upTransactionId,
+  accountName: l.accountName,
+  date: l.date,
+  currency: l.currency,
+  amount: l.amount,
+  direction: l.direction,
+  description: l.description,
+  status: l.status,
+  deleted: l.deleted,
+  note: l.note,
+});
+export const evidenceFact = (e: EvidenceView): EvidenceFact => ({ label: e.label, url: e.url, kind: e.kind });
+
+/** The position without its detail, as year summaries list it */
+export function withoutDetail({ detail: _detail, ...position }: DetailedPosition): PositionView {
+  return position;
+}
+
+export function itemPosition(item: TaxItemView): DetailedPosition {
   return {
     id: item.id,
     source: 'ITEM',
@@ -235,22 +298,53 @@ export function itemPosition(item: TaxItemView): PositionView {
     evidenceCount: item.evidence.length,
     gaps: item.gaps,
     workings: null,
+    detail: { rationale: item.rationale, notes: item.notes, sources: item.links.map(sourceFact), evidence: item.evidence.map(evidenceFact), asset: null },
   };
 }
 
-export type AssetFacts = { id: string; name: string; category: string; currency: string; linkCount: number; evidenceCount: number };
-export type AssetYearFacts = { status: ReviewStatus; claimedAmount: string | null } | null;
+export type AssetFacts = {
+  id: string;
+  name: string;
+  category: string;
+  currency: string;
+  links: readonly LinkView[];
+  evidence: readonly EvidenceView[];
+  notes: string | null;
+  fact: Omit<AssetFact, 'openingValue' | 'closingValue' | 'daysHeld' | 'daysInYear' | 'usePercentSource' | 'reviewNote'>;
+};
+export type AssetYearFacts = { status: ReviewStatus; claimedAmount: string | null; note: string | null } | null;
 
-/** The depreciation (and any balancing adjustment) one schedule row contributes to its year */
-export function assetPositions(asset: AssetFacts, row: ScheduleRow, record: AssetYearFacts): PositionView[] {
+/**
+ * The depreciation (and any balancing adjustment) one schedule row
+ * contributes to its year. A disposal row after the asset was written off
+ * has no decline left, so it contributes only the balancing adjustment.
+ */
+export function assetPositions(asset: AssetFacts, row: ScheduleRow, record: AssetYearFacts): DetailedPosition[] {
   const status = record?.status ?? 'TO_REVIEW';
   const gaps: GapCode[] = [];
   if (status === 'TO_REVIEW') gaps.push('needs-review');
   if (status !== 'EXCLUDED') {
-    if (asset.evidenceCount === 0) gaps.push('no-evidence');
-    if (asset.linkCount === 0) gaps.push('no-transaction');
+    if (asset.evidence.length === 0) gaps.push('no-evidence');
+    if (asset.links.length === 0) gaps.push('no-transaction');
     if (asset.currency !== HOME_CURRENCY) gaps.push('not-aud');
+    if (asset.links.some((l) => l.alsoLinkedTo.length > 0)) gaps.push('shared-transaction');
+    if (asset.links.some((l) => l.deleted)) gaps.push('removed-transaction');
   }
+  const detail: PositionDetail = {
+    rationale: null,
+    notes: asset.notes,
+    sources: asset.links.map(sourceFact),
+    evidence: asset.evidence.map(evidenceFact),
+    asset: {
+      ...asset.fact,
+      openingValue: row.openingValue,
+      closingValue: row.closingValue,
+      daysHeld: row.daysHeld,
+      daysInYear: row.daysInYear,
+      usePercentSource: row.usePercentSource,
+      reviewNote: record?.note ?? null,
+    },
+  };
   const base = {
     source: 'ASSET' as const,
     itemId: null,
@@ -259,24 +353,28 @@ export function assetPositions(asset: AssetFacts, row: ScheduleRow, record: Asse
     date: row.periodEnd,
     currency: asset.currency,
     status,
-    linkCount: asset.linkCount,
-    evidenceCount: asset.evidenceCount,
+    linkCount: asset.links.length,
+    evidenceCount: asset.evidence.length,
     gaps,
+    detail,
   };
-  const positions: PositionView[] = [
-    {
-      ...base,
-      id: `asset:${asset.id}:${row.taxYear}`,
-      kind: 'DEDUCTION',
-      description: `Decline in value: ${asset.name} (estimate)`,
-      amount: row.decline,
-      percent: row.usePercent,
-      proposedAmount: row.deduction,
-      claimedAmount: moneyOrNull(record?.claimedAmount),
-      workings: row.workings,
-    },
-  ];
   const balancing = row.balancingAdjustment;
+  const onlyBalancing = balancing !== null && dec(row.openingValue).isZero() && dec(row.decline).isZero();
+  const positions: DetailedPosition[] = onlyBalancing
+    ? []
+    : [
+        {
+          ...base,
+          id: `asset:${asset.id}:${row.taxYear}`,
+          kind: 'DEDUCTION',
+          description: `Decline in value: ${asset.name} (estimate)`,
+          amount: row.decline,
+          percent: row.usePercent,
+          proposedAmount: row.deduction,
+          claimedAmount: moneyOrNull(record?.claimedAmount),
+          workings: row.workings,
+        },
+      ];
   if (balancing && !dec(balancing.amount).isZero()) {
     const assessable = dec(balancing.amount).gt(0);
     positions.push({
@@ -287,11 +385,61 @@ export function assetPositions(asset: AssetFacts, row: ScheduleRow, record: Asse
       amount: money(dec(balancing.amount).abs()),
       percent: row.usePercent,
       proposedAmount: money(dec(balancing.taxableAmount).abs()),
-      claimedAmount: null,
+      // With no decline position left, the year's claimed figure belongs to the adjustment
+      claimedAmount: onlyBalancing ? moneyOrNull(record?.claimedAmount) : null,
       workings: `Termination value ${balancing.terminationValue} − adjustable value ${balancing.adjustableValue} = ${balancing.amount}; × ${row.usePercent}% work use = ${balancing.taxableAmount}.`,
     });
   }
   return positions;
+}
+
+/** A difference between a filed position and the same position computed from the live records now */
+export type DriftLine = {
+  positionId: string;
+  description: string;
+  change: 'added' | 'removed' | 'changed';
+  /** The fields that differ (changed only) */
+  fields: string[];
+  filedProposed: string | null;
+  liveProposed: string | null;
+};
+
+/** JSON with object keys sorted: snapshots come back from jsonb with their keys reordered */
+function canonical(value: unknown): string {
+  return JSON.stringify(value, (_key, v: unknown) =>
+    v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : v,
+  );
+}
+
+const DRIFT_FIELDS = ['kind', 'category', 'description', 'date', 'currency', 'amount', 'percent', 'proposedAmount', 'claimedAmount', 'status'] as const;
+
+/** Every way the live positions differ from a filed snapshot: added, removed, or changed (figures or supporting detail) */
+export function driftOf(filed: readonly DetailedPosition[], live: readonly DetailedPosition[]): DriftLine[] {
+  const lines: DriftLine[] = [];
+  const liveById = new Map(live.map((p) => [p.id, p]));
+  const filedIds = new Set(filed.map((p) => p.id));
+  for (const f of filed) {
+    const l = liveById.get(f.id);
+    if (!l) {
+      lines.push({ positionId: f.id, description: f.description, change: 'removed', fields: [], filedProposed: f.proposedAmount, liveProposed: null });
+      continue;
+    }
+    const fields: string[] = DRIFT_FIELDS.filter((k) => f[k] !== l[k]);
+    const fd = f.detail;
+    const ld = l.detail;
+    if (fd) {
+      if (fd.rationale !== ld.rationale) fields.push('rationale');
+      if (fd.notes !== ld.notes) fields.push('notes');
+      if (canonical(fd.sources) !== canonical(ld.sources)) fields.push('sources');
+      if (canonical(fd.evidence) !== canonical(ld.evidence)) fields.push('evidence');
+      if (canonical(fd.asset) !== canonical(ld.asset)) fields.push('asset');
+    }
+    if (fields.length > 0) lines.push({ positionId: f.id, description: f.description, change: 'changed', fields, filedProposed: f.proposedAmount, liveProposed: l.proposedAmount });
+  }
+  for (const l of live) {
+    if (!filedIds.has(l.id)) lines.push({ positionId: l.id, description: l.description, change: 'added', fields: [], filedProposed: null, liveProposed: l.proposedAmount });
+  }
+  return lines;
 }
 
 export type TotalLine = { kind: TaxItemKind; currency: string; count: number; proposed: string; confirmed: string; claimed: string };

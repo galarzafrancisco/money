@@ -548,12 +548,12 @@ export class MoneyMcpServerFactory {
     tool('list_tax_years', 'Financial years with positions: status (PREPARING, FILED, AMENDING), totals per kind, items to review, gaps, latest filing', read, {}, () => this.taxYears.list(user));
     tool(
       'get_tax_year_summary',
-      'A financial year\'s proposed tax claims: every position (tax items plus asset depreciation), totals per kind and category (proposed, confirmed, claimed), outstanding review/evidence gaps, warnings and filing history.',
+      'A financial year\'s proposed tax claims: every position (tax items plus asset depreciation), totals per kind and category (proposed, confirmed, claimed), outstanding review/evidence gaps, warnings and filing history. A FILED year answers with its latest filing (basis FILED); the live recomputation is under live, and drift lists every difference since the filing.',
       read,
       { taxYear: taxYearArg },
       ({ taxYear }) => this.taxYears.summary(user, taxYear),
     );
-    tool('get_tax_year_report', 'A copyable Markdown summary and a CSV of a year\'s positions, live or for a filed version', read, { taxYear: taxYearArg, ...reportQueryShape }, ({ taxYear, ...query }) =>
+    tool('get_tax_year_report', 'A copyable Markdown summary and a CSV of a year\'s positions: the latest filing for a filed year, else live; or a given filed version', read, { taxYear: taxYearArg, ...reportQueryShape }, ({ taxYear, ...query }) =>
       this.taxYears.report(user, taxYear, query),
     );
     tool('update_tax_year', 'Edit a year\'s preparation notes', write, { taxYear: taxYearArg, ...updateYearShape }, ({ taxYear, ...input }) => this.taxYears.updateNotes(user, taxYear, input));
@@ -567,7 +567,7 @@ export class MoneyMcpServerFactory {
     tool('reopen_tax_year', 'Reopen a filed year for amendment, with a reason. Earlier filings stay as they were; filing again stores an AMENDMENT version.', write, { taxYear: taxYearArg, ...amendYearShape }, ({ taxYear, ...input }) =>
       this.taxYears.amend(user, taxYear, input),
     );
-    tool('get_tax_filing', 'The full snapshot of one filed version of a year (1 = original)', read, { taxYear: taxYearArg, version: z.string().describe('Filing version, e.g. "1"') }, ({ taxYear, version }) =>
+    tool('get_tax_filing', 'The full snapshot of one filed version of a year (1 = original), with each position\'s detail as filed: rationale, notes, source transactions, evidence URLs and asset inputs', read, { taxYear: taxYearArg, version: z.string().describe('Filing version, e.g. "1"') }, ({ taxYear, version }) =>
       this.taxYears.filing(user, taxYear, version),
     );
 

@@ -101,14 +101,16 @@ export function rateFor(input: Pick<DepreciationInput, 'method' | 'effectiveLife
   return { rate: (input.method === 'PRIME_COST' ? HUNDRED : HUNDRED.times(2)).div(life), source: 'effective-life' };
 }
 
-/** A sensible default horizon: the year a prime-cost write-off would finish, given the rate */
+/** A sensible default horizon: the year a prime-cost write-off would finish, given the rate, and any disposal year */
 export function defaultHorizon(input: DepreciationInput, currentYear: number): number {
   if (!input.startDate) return currentYear;
   const first = taxYearOf(input.startDate);
-  if (input.method === 'IMMEDIATE') return Math.max(first, currentYear);
+  const disposal = input.disposedOn ? taxYearOf(input.disposedOn) : first;
+  const cap = (year: number) => Math.min(first + MAX_SCHEDULE_YEARS - 1, year);
+  if (input.method === 'IMMEDIATE') return cap(Math.max(first, currentYear, disposal));
   const { rate } = rateFor(input);
   const years = rate && rate.gt(0) ? Math.ceil(HUNDRED.div(rate).toNumber()) : 1;
-  return Math.min(first + MAX_SCHEDULE_YEARS - 1, Math.max(currentYear, first + years));
+  return cap(Math.max(currentYear, first + years, disposal));
 }
 
 /**
@@ -171,15 +173,9 @@ export function depreciationSchedule(input: DepreciationInput, throughYear: numb
     let balancing: BalancingAdjustment | null = null;
     let closing = closingBeforeDisposal;
     if (disposedHere) {
-      const termination = dec(input.disposalProceeds ?? '0');
-      const amount = termination.minus(closingBeforeDisposal);
-      balancing = {
-        terminationValue: money(termination),
-        adjustableValue: money(closingBeforeDisposal),
-        amount: money(amount),
-        taxableAmount: money(amount.times(usePercent).div(HUNDRED)),
-      };
-      workings += ` Disposed of on ${input.disposedOn}: termination value ${money(termination)} − adjustable value ${money(closingBeforeDisposal)} = balancing adjustment ${money(amount)} (estimate).`;
+      const disposal = balancingFor(input, closingBeforeDisposal, usePercent);
+      balancing = disposal.adjustment;
+      workings += ` ${disposal.workings}`;
       closing = ZERO;
     }
 
@@ -207,10 +203,57 @@ export function depreciationSchedule(input: DepreciationInput, throughYear: numb
     }
     if (closing.lte(0)) {
       endReason = 'WRITTEN_OFF';
+      // Written off, but disposed of in a later year: the sale still needs its
+      // balancing adjustment (on an adjustable value of 0), so add that year's row.
+      if (disposalYear !== null && disposalYear > year && disposalYear <= last) {
+        rows.push(disposalAfterWriteOff(input, disposalYear, year));
+        endReason = 'DISPOSED';
+      }
       break;
     }
   }
 
   const sum = (key: 'decline' | 'deduction' | 'privatePortion') => money(rows.reduce((total, r) => total.plus(r[key]), ZERO));
   return { ...empty(endReason), rows, totals: { decline: sum('decline'), deduction: sum('deduction'), privatePortion: sum('privatePortion') } };
+}
+
+/** The balancing adjustment estimate on disposal, against the adjustable value just before it */
+function balancingFor(input: DepreciationInput, adjustableValue: MoneyDecimal, usePercent: MoneyDecimal): { adjustment: BalancingAdjustment; workings: string } {
+  const termination = dec(input.disposalProceeds ?? '0');
+  const amount = termination.minus(adjustableValue);
+  return {
+    adjustment: {
+      terminationValue: money(termination),
+      adjustableValue: money(adjustableValue),
+      amount: money(amount),
+      taxableAmount: money(amount.times(usePercent).div(HUNDRED)),
+    },
+    workings: `Disposed of on ${input.disposedOn}: termination value ${money(termination)} − adjustable value ${money(adjustableValue)} = balancing adjustment ${money(amount)} (estimate).`,
+  };
+}
+
+/** The disposal year's row for an asset already written off: no decline left, only the balancing adjustment */
+function disposalAfterWriteOff(input: DepreciationInput, year: number, writtenOffIn: number): ScheduleRow {
+  const period = taxYearPeriod(year);
+  const to = input.disposedOn as string;
+  const yearUse = input.usePercentByYear?.get(year);
+  const usePercent = dec(yearUse ?? input.defaultUsePercent);
+  const disposal = balancingFor(input, ZERO, usePercent);
+  return {
+    taxYear: period.taxYear,
+    startYear: year,
+    periodStart: period.start,
+    periodEnd: to,
+    daysHeld: daysBetweenInclusive(period.start, to),
+    daysInYear: period.days,
+    openingValue: '0.00',
+    decline: '0.00',
+    closingValue: '0.00',
+    usePercent: plain(usePercent),
+    usePercentSource: yearUse === undefined ? 'default' : 'year',
+    deduction: '0.00',
+    privatePortion: '0.00',
+    balancingAdjustment: disposal.adjustment,
+    workings: `Already written off in ${taxYearLabel(writtenOffIn)}: no decline left. ${disposal.workings} Scaled by ${plain(usePercent)}% work use = ${disposal.adjustment.taxableAmount}.`,
+  };
 }

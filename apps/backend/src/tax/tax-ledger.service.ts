@@ -34,6 +34,12 @@ export const TAX_NOTES = [
 
 type SourceRef = { transactionId?: string; upTransactionId?: string };
 
+/** Source refs in a stable order, so writers linking several sources take their source locks in the same order */
+export function sortedRefs<T extends SourceRef>(refs: readonly T[]): T[] {
+  const key = (r: SourceRef) => (r.transactionId ? `tx:${r.transactionId}` : `up:${r.upTransactionId}`);
+  return [...refs].sort((a, b) => key(a).localeCompare(key(b)));
+}
+
 export function evidenceView(e: TaxEvidenceLinkEntity): EvidenceView {
   return { id: e.id, label: e.label, url: e.url, kind: e.kind, createdAt: e.createdAt.toISOString() };
 }
@@ -92,7 +98,7 @@ export class TaxLedgerService {
         claimedAmount: data.claimedAmount ?? null,
       });
       await this.repo.saveItem(item, manager);
-      for (const ref of data.links ?? []) await this.addLinkTo(user.id, { itemId: item.id }, ref, { allowShared: data.allowShared ?? false, note: null }, manager);
+      for (const ref of sortedRefs(data.links ?? [])) await this.addLinkTo(user.id, { itemId: item.id }, ref, { allowShared: data.allowShared ?? false, note: null }, manager);
       for (const e of data.evidence ?? []) await this.repo.addEvidence({ userId: user.id, itemId: item.id, assetId: null, label: e.label, url: e.url, kind: e.kind ?? 'OTHER' }, manager);
       return item.id;
     });
@@ -215,6 +221,8 @@ export class TaxLedgerService {
       : isUuid(ref.upTransactionId as string) && (await this.repo.upTransactionExists(userId, ref.upTransactionId as string, manager));
     if (!exists) throw new NotFoundError(ref.transactionId ? `Transaction ${ref.transactionId} not found` : `Up transaction ${ref.upTransactionId} not found`);
 
+    // Held until commit: a concurrent link to the same transaction waits here, then sees this one
+    await this.repo.lockSource(userId, ref, manager);
     const existing = await this.repo.linksToSource(userId, ref, manager);
     const same = existing.find((l) => (owner.itemId ? l.itemId === owner.itemId : l.assetId === owner.assetId));
     if (same) return same.id;
@@ -233,7 +241,7 @@ export class TaxLedgerService {
     try {
       return await this.repo.addLink({ userId, itemId: owner.itemId ?? null, assetId: owner.assetId ?? null, transactionId: ref.transactionId ?? null, upTransactionId: ref.upTransactionId ?? null, note: options.note }, manager);
     } catch (error) {
-      if (String((error as { code?: string }).code) === '23505') throw new ConflictError('That transaction was just linked by another request. Try again.');
+      if (String((error as { code?: string }).code) === '23505') throw new ConflictError('That transaction is already linked to this record.');
       throw error;
     }
   }

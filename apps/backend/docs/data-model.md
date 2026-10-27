@@ -209,8 +209,11 @@ Every writer takes locks in this order, and skips the ones it doesn't need:
 
 Tax writers take no user, category or account lock. They lock, in this order:
 the `tax_returns` row of each affected financial year (ascending year; created
-on first use), then the tax item or asset row. Filing locks only the year's
-`tax_returns` row. Reading linked transactions takes no lock.
+on first use), then the tax item or asset row, then, when linking a source
+transaction, a transaction-scoped advisory lock on that source
+(`tax_source:<user>:<tx|up>:<id>`, one per source, in sorted order when a
+create links several). Filing locks only the year's `tax_returns` row.
+Reading linked transactions takes no row lock.
 
 Postgres takes the ON DELETE SET NULL / CASCADE actions of a category delete
 on the account rows. Without step 3 up front, a delete holding the category

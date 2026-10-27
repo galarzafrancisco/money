@@ -195,6 +195,70 @@ export const taxPositionSchema = apiSchema(
   }),
 );
 
+export const taxPositionDetailSchema = apiSchema(
+  'TaxPositionDetail',
+  z.object({
+    rationale: z.string().nullable(),
+    notes: z.string().nullable(),
+    sources: z
+      .array(
+        z.object({
+          source: z.enum(['manual', 'up']),
+          transactionId: z.string().nullable(),
+          upTransactionId: z.string().nullable(),
+          accountName: z.string(),
+          date: z.string(),
+          currency: z.string(),
+          amount: decimalOut().nullable(),
+          direction: z.enum(['out', 'in']).nullable(),
+          description: z.string().nullable(),
+          status: z.enum(['HELD', 'SETTLED']).nullable(),
+          deleted: z.boolean(),
+          note: z.string().nullable(),
+        }),
+      )
+      .describe('The linked source transactions as they stood when filed'),
+    evidence: z.array(z.object({ label: z.string(), url: z.string(), kind: z.enum(EVIDENCE_KINDS) })).describe('Evidence URLs as they stood when filed'),
+    asset: z
+      .object({
+        name: z.string(),
+        description: z.string().nullable(),
+        cost: decimalOut(),
+        acquiredOn: z.string(),
+        firstUsedOn: z.string().nullable(),
+        method: z.string(),
+        effectiveLifeYears: decimalOut().nullable(),
+        ratePercent: decimalOut().nullable(),
+        ownership: z.string().nullable(),
+        disposedOn: z.string().nullable(),
+        disposalProceeds: decimalOut().nullable(),
+        notes: z.string().nullable(),
+        openingValue: decimalOut(),
+        closingValue: decimalOut(),
+        daysHeld: z.number().int(),
+        daysInYear: z.number().int(),
+        usePercentSource: z.enum(['year', 'default']),
+        reviewNote: z.string().nullable(),
+      })
+      .nullable()
+      .describe('Asset positions: the asset inputs and schedule row the figure came from'),
+  }),
+);
+
+export const taxFiledPositionSchema = apiSchema('TaxFiledPosition', taxPositionSchema.extend({ detail: taxPositionDetailSchema }));
+
+export const taxDriftLineSchema = apiSchema(
+  'TaxDriftLine',
+  z.object({
+    positionId: z.string(),
+    description: z.string(),
+    change: z.enum(['added', 'removed', 'changed']).describe('Compared with the latest filing: a position that is new, gone, or different now'),
+    fields: z.array(z.string()).describe('changed: the figures or supporting detail that differ (e.g. amount, proposedAmount, sources, evidence, asset)'),
+    filedProposed: decimalOut().nullable(),
+    liveProposed: decimalOut().nullable(),
+  }),
+);
+
 const totalLine = { kind, currency: z.string(), count: z.number().int(), proposed: decimalOut(), confirmed: decimalOut(), claimed: decimalOut() };
 export const taxTotalLineSchema = apiSchema('TaxTotalLine', z.object(totalLine));
 export const taxCategoryTotalSchema = apiSchema('TaxCategoryTotal', z.object({ ...totalLine, category: z.string() }));
@@ -227,6 +291,8 @@ export const taxYearSummarySchema = apiSchema(
     jurisdiction: z.string(),
     period,
     status: yearStatus,
+    basis: z.enum(['FILED', 'LIVE']).describe('FILED: positions, totals and gaps are the latest filed snapshot. LIVE: computed from the records now.'),
+    filedVersion: z.number().int().nullable().describe('The filing version shown when basis is FILED'),
     notes: z.string().nullable(),
     amendingReason: z.string().nullable(),
     positions: z.array(taxPositionSchema),
@@ -234,6 +300,11 @@ export const taxYearSummarySchema = apiSchema(
     gaps: gapSummary,
     gapDescriptions: z.record(z.string(), z.string()),
     warnings: z.array(z.string()),
+    live: z
+      .object({ positions: z.array(taxPositionSchema), totals: z.object({ byKind: z.array(taxTotalLineSchema), byCategory: z.array(taxCategoryTotalSchema) }) })
+      .nullable()
+      .describe('basis FILED: the same year recomputed from the live records now, kept apart from the filed figures'),
+    drift: z.array(taxDriftLineSchema).describe('Differences between the latest filing and the live records (empty while preparing a never-filed year)'),
     filings: z.array(taxFilingSchema),
     rulesVersion: z.string(),
     disclaimers: z.array(z.string()),
@@ -282,7 +353,7 @@ export const taxFilingSnapshotSchema = apiSchema(
     note: z.string().nullable(),
     amendmentReason: z.string().nullable(),
     rulesVersion: z.string(),
-    positions: z.array(taxPositionSchema),
+    positions: z.array(taxFiledPositionSchema).describe('Each position as filed, with the rationale, sources, evidence and asset inputs behind it'),
     totals: z.object({ byKind: z.array(taxTotalLineSchema), byCategory: z.array(taxCategoryTotalSchema) }),
     gaps: gapSummary,
     createdAt: z.string(),
