@@ -344,6 +344,54 @@ describe('Tax ledger and depreciating assets', () => {
     await as(tokenA).delete(`/api/tax/assets/${asset.id}`).expect(200);
   });
 
+  it.each([
+    { label: 'assessable (sold above adjustable value)', startYear: 2040, proceeds: '1200', kind: 'INCOME', proposed: '200.00', claimed: '200', amended: '210' },
+    { label: 'deductible (sold below adjustable value)', startYear: 2042, proceeds: '500', kind: 'DEDUCTION', proposed: '500.00', claimed: '500', amended: '480' },
+  ])('records the actually claimed balancing adjustment apart from the depreciation, through filing and amendment: $label', async ({ startYear, proceeds, kind, proposed, claimed, amended }) => {
+    const year = `${startYear}-${String((startYear + 1) % 100).padStart(2, '0')}`;
+    const asset = (await as(tokenA).post('/api/tax/assets', { name: `Sold laptop ${year}`, cost: '2000', acquiredOn: `${startYear}-07-01`, firstUsedOn: `${startYear}-07-01`, method: 'PRIME_COST', effectiveLifeYears: '2', disposedOn: `${startYear + 1}-06-30`, disposalProceeds: proceeds }).expect(201)).body;
+    const depId = `asset:${asset.id}:${year}`;
+    const balId = `${depId}:balancing`;
+
+    // Each figure needs a position to land on
+    await as(tokenA).put(`/api/tax/assets/${asset.id}/years/${startYear + 1}-${String((startYear + 2) % 100).padStart(2, '0')}`, { balancingClaimedAmount: '1' }).expect(400);
+
+    const set = (await as(tokenA).put(`/api/tax/assets/${asset.id}/years/${year}`, { status: 'CONFIRMED', claimedAmount: '1000', balancingClaimedAmount: claimed }).expect(200)).body;
+    expect(set.schedule.rows[0].review).toMatchObject({ claimedAmount: '1000.00', balancingClaimedAmount: `${claimed}.00` });
+
+    const summary = (await as(tokenA).get(`/api/tax/years/${year}`).expect(200)).body;
+    expect(summary.positions.find((p: any) => p.id === depId)).toMatchObject({ kind: 'DEDUCTION', proposedAmount: '1000.00', claimedAmount: '1000.00' });
+    expect(summary.positions.find((p: any) => p.id === balId)).toMatchObject({ kind, proposedAmount: proposed, claimedAmount: `${claimed}.00` });
+
+    const filed = (await as(tokenA).post(`/api/tax/years/${year}/filings`, { filedOn: `${startYear + 1}-10-01`, allowUnreviewed: true }).expect(201)).body;
+    const claimedByKind = (totals: any) => Object.fromEntries(totals.byKind.map((l: any) => [l.kind, l.claimed]));
+    expect(claimedByKind(filed.totals)).toEqual(kind === 'INCOME' ? { DEDUCTION: '1000.00', INCOME: '200.00' } : { DEDUCTION: '1500.00' });
+    const v1 = (await as(tokenA).get(`/api/tax/years/${year}/filings/1`).expect(200)).body;
+    expect(v1.positions.find((p: any) => p.id === balId).claimedAmount).toBe(`${claimed}.00`);
+
+    // Amend only the balancing figure: version 2 has it, version 1 keeps the original
+    await as(tokenA).put(`/api/tax/assets/${asset.id}/years/${year}`, { balancingClaimedAmount: amended }).expect(409);
+    await as(tokenA).post(`/api/tax/years/${year}/amendment`, { reason: 'Corrected sale price' }).expect(200);
+    await as(tokenA).put(`/api/tax/assets/${asset.id}/years/${year}`, { balancingClaimedAmount: amended }).expect(200);
+    const amending = (await as(tokenA).get(`/api/tax/years/${year}`).expect(200)).body;
+    expect(amending.drift).toEqual([expect.objectContaining({ positionId: balId, change: 'changed', fields: ['claimedAmount'] })]);
+    await as(tokenA).post(`/api/tax/years/${year}/filings`, { filedOn: `${startYear + 1}-11-01`, allowUnreviewed: true }).expect(201);
+    const v2 = (await as(tokenA).get(`/api/tax/years/${year}/filings/2`).expect(200)).body;
+    expect(v2.positions.find((p: any) => p.id === balId).claimedAmount).toBe(`${amended}.00`);
+    expect(v2.positions.find((p: any) => p.id === depId).claimedAmount).toBe('1000.00');
+    expect((await as(tokenA).get(`/api/tax/years/${year}/filings/1`).expect(200)).body.positions.find((p: any) => p.id === balId).claimedAmount).toBe(`${claimed}.00`);
+  });
+
+  it('a disposal-only year takes the claimed figure as balancingClaimedAmount', async () => {
+    const asset = (await as(tokenA).post('/api/tax/assets', { name: 'Lens', cost: '900', acquiredOn: '2044-07-10', firstUsedOn: '2044-07-10', method: 'IMMEDIATE', disposedOn: '2046-01-15', disposalProceeds: '300' }).expect(201)).body;
+    const res = await as(tokenA).put(`/api/tax/assets/${asset.id}/years/2045-46`, { claimedAmount: '300' }).expect(400);
+    expect(res.body.error.message).toContain('balancingClaimedAmount');
+    await as(tokenA).put(`/api/tax/assets/${asset.id}/years/2045-46`, { balancingClaimedAmount: '300' }).expect(200);
+    const s = (await as(tokenA).get('/api/tax/years/2045-46').expect(200)).body;
+    expect(s.positions.filter((p: any) => p.assetId === asset.id)).toEqual([expect.objectContaining({ id: `asset:${asset.id}:2045-46:balancing`, kind: 'INCOME', claimedAmount: '300.00' })]);
+    await as(tokenA).delete(`/api/tax/assets/${asset.id}`).expect(200);
+  });
+
   it('deleting a linked transaction leaves the item in place, unmatched again', async () => {
     const tx = (await as(tokenA).post(`/api/accounts/${bank.id}/transactions`, { type: 'WITHDRAWAL', date: '2026-08-01', currency: 'AUD', amount: '25' }).expect(201)).body;
     const item = (await as(tokenA).post('/api/tax/items', { description: 'Union fee', links: [{ transactionId: tx.id }] }).expect(201)).body;

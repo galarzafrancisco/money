@@ -312,7 +312,8 @@ export type AssetFacts = {
   notes: string | null;
   fact: Omit<AssetFact, 'openingValue' | 'closingValue' | 'daysHeld' | 'daysInYear' | 'usePercentSource' | 'reviewNote'>;
 };
-export type AssetYearFacts = { status: ReviewStatus; claimedAmount: string | null; note: string | null } | null;
+/** claimedAmount belongs to the decline-in-value position, balancingClaimedAmount to the balancing adjustment */
+export type AssetYearFacts = { status: ReviewStatus; claimedAmount: string | null; balancingClaimedAmount: string | null; note: string | null } | null;
 
 /**
  * The depreciation (and any balancing adjustment) one schedule row
@@ -385,8 +386,7 @@ export function assetPositions(asset: AssetFacts, row: ScheduleRow, record: Asse
       amount: money(dec(balancing.amount).abs()),
       percent: row.usePercent,
       proposedAmount: money(dec(balancing.taxableAmount).abs()),
-      // With no decline position left, the year's claimed figure belongs to the adjustment
-      claimedAmount: onlyBalancing ? moneyOrNull(record?.claimedAmount) : null,
+      claimedAmount: moneyOrNull(record?.balancingClaimedAmount),
       workings: `Termination value ${balancing.terminationValue} − adjustable value ${balancing.adjustableValue} = ${balancing.amount}; × ${row.usePercent}% work use = ${balancing.taxableAmount}.`,
     });
   }

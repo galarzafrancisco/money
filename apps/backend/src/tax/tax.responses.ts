@@ -105,7 +105,7 @@ export const depreciationRowSchema = apiSchema(
     balancingAdjustment: balancing,
     workings: z.string(),
     yearStatus,
-    review: z.object({ status: reviewStatus, claimedAmount: decimalOut().nullable(), note: z.string().nullable(), usePercentOverride: decimalOut().nullable() }),
+    review: z.object({ status: reviewStatus, claimedAmount: decimalOut('Actually claimed for the decline in value').nullable(), balancingClaimedAmount: decimalOut('Actually returned for the balancing adjustment').nullable(), note: z.string().nullable(), usePercentOverride: decimalOut().nullable() }),
     filed: z.object({ version: z.number().int(), deduction: decimalOut().nullable() }).nullable().describe('The latest filed figure for this year, if filed'),
     driftFromFiled: z.boolean().describe('The filed deduction differs from the one computed now'),
   }),

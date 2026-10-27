@@ -25,7 +25,7 @@ and `tax-views.ts`). REST: `/api/tax/*`. MCP: the `*_tax_*` tools. Web:
 | **Source fact** | Something that happened: a Money transaction, an imported Up transaction, an asset you own, or (with no transaction) the item itself | `transactions`, `up_transactions`, `tax_assets` |
 | **Tax item** | One proposed position in one financial year: kind, category, amount, claim %, rationale, review status, and the amount actually claimed | `tax_items` |
 | **Asset position** | An asset's estimated decline in value for one year (and any balancing adjustment). Derived from the asset, never stored | (computed) |
-| **Asset year** | Per asset and year: work-use % override, review status, claimed amount, note | `tax_asset_years` |
+| **Asset year** | Per asset and year: work-use % override, review status, the amount actually claimed for the decline in value (`claimedAmount`) and, in a disposal year, for the balancing adjustment (`balancingClaimedAmount`), note | `tax_asset_years` |
 | **Source link** | Item or asset → Money or Up transaction. A reference, never a copy | `tax_source_links` |
 | **Evidence link** | Labelled URL to a receipt, invoice, calculation or statement | `tax_evidence_links` |
 | **Return** | Per financial year: `PREPARING`, `FILED` or `AMENDING`, notes | `tax_returns` |
@@ -142,6 +142,13 @@ For each financial year from the year of first use:
   year: no decline, an adjustable value of 0, and the balancing adjustment on
   the full termination value. That year's summary then has only the balancing
   adjustment position.
+- **What was actually claimed**: a disposal year can have two positions, the
+  decline in value and the balancing adjustment, and each takes its own
+  actual figure: `claimedAmount` for the decline, `balancingClaimedAmount`
+  for the adjustment (a positive amount; whether it was returned as income or
+  claimed as a deduction follows the position's kind). Each is refused (400)
+  in a year with no position for it to land on, e.g. `claimedAmount` in a
+  disposal-only year after a write-off.
 
 Each row carries `workings`, a sentence showing the numbers, so you can check
 it by hand. The output records `rulesVersion`. Changing the formulas means a new
@@ -263,7 +270,7 @@ The same journey runs end to end in `src/tax.e2e.spec.ts`.
 | GET, POST | `/api/tax/assets` | Register with optional `links` and `evidence` |
 | GET, PATCH, DELETE | `/api/tax/assets/:assetId` | `GET ?throughYear=` |
 | GET | `/api/tax/assets/:assetId/schedule` | `?throughYear=` |
-| PUT | `/api/tax/assets/:assetId/years/:taxYear` | `{ usePercent?, status?, claimedAmount?, note? }` (`null` clears) |
+| PUT | `/api/tax/assets/:assetId/years/:taxYear` | `{ usePercent?, status?, claimedAmount?, balancingClaimedAmount?, note? }` (`null` clears) |
 | GET | `/api/tax/years` | |
 | GET, PATCH | `/api/tax/years/:taxYear` | `PATCH { notes }` |
 | GET | `/api/tax/years/:taxYear/report` | `?version=` |

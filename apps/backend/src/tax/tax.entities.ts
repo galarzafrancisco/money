@@ -61,7 +61,10 @@ export class TaxAssetYearEntity {
   @Column({ name: 'start_year', type: 'integer' }) startYear: number;
   @Column(numeric('use_percent')) usePercent: string | null;
   @Column({ type: 'varchar', length: 12 }) status: ReviewStatus;
+  /** Actually claimed for the decline in value */
   @Column(numeric('claimed_amount')) claimedAmount: string | null;
+  /** Actually returned for the disposal's balancing adjustment (a magnitude: assessable or deductible as the schedule labels it) */
+  @Column(numeric('balancing_claimed_amount')) balancingClaimedAmount: string | null;
   @Column({ type: 'text', nullable: true }) note: string | null;
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' }) createdAt: Date;
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' }) updatedAt: Date;

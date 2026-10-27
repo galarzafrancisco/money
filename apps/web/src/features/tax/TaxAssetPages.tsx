@@ -242,15 +242,26 @@ function YearEditor({ assetId, row, onDone }: { assetId: string; row: Depreciati
   const [usePercent, setUsePercent] = useState(row.review.usePercentOverride ?? '');
   const [status, setStatus] = useState(row.review.status);
   const [claimed, setClaimed] = useState(row.review.claimedAmount ?? '');
+  const [balancingClaimed, setBalancingClaimed] = useState(row.review.balancingClaimedAmount ?? '');
   const [error, setError] = useState<string>();
+  const balancing = row.balancingAdjustment && Number(row.balancingAdjustment.amount) !== 0 ? row.balancingAdjustment : null;
+  // A disposal year after a write-off has no decline left: only the balancing adjustment can be claimed
+  const hasDecline = !(balancing && Number(row.openingValue) === 0 && Number(row.decline) === 0);
   return (
     <Form
       label={`Edit ${row.taxYear}`}
       onSubmit={() => {
         if (usePercent.trim() && !isPercent(usePercent)) return setError('Use a percentage from 0 to 100, or leave empty for the default.');
         if (claimed.trim() && !isDecimal(claimed)) return setError('Claimed amount must be a number.');
+        if (balancingClaimed.trim() && !isDecimal(balancingClaimed)) return setError('Balancing adjustment claimed must be a positive number.');
         setError(undefined);
-        save.mutate({ assetId, taxYear: row.taxYear, body: { usePercent: orNull(usePercent), status, claimedAmount: orNull(claimed) } }, { onSuccess: onDone });
+        const body = {
+          usePercent: orNull(usePercent),
+          status,
+          ...(hasDecline ? { claimedAmount: orNull(claimed) } : {}),
+          ...(balancing ? { balancingClaimedAmount: orNull(balancingClaimed) } : {}),
+        };
+        save.mutate({ assetId, taxYear: row.taxYear, body }, { onSuccess: onDone });
       }}
     >
       <Stack gap={2}>
@@ -261,7 +272,18 @@ function YearEditor({ assetId, row, onDone }: { assetId: string; row: Depreciati
             <option value="CONFIRMED">Confirmed</option>
             <option value="EXCLUDED">Excluded</option>
           </SelectField>
-          <DecimalField label="Actually claimed" value={claimed} onChange={(e) => setClaimed(e.target.value)} error={error} />
+          {hasDecline && <DecimalField label="Depreciation claimed" value={claimed} onChange={(e) => setClaimed(e.target.value)} hint="Decline in value on the lodged return" />}
+          {balancing && (
+            <DecimalField
+              label="Balancing adjustment claimed"
+              value={balancingClaimed}
+              onChange={(e) => setBalancingClaimed(e.target.value)}
+              hint={Number(balancing.amount) > 0 ? 'Returned as assessable income' : 'Claimed as a deduction'}
+            />
+          )}
+        </Row>
+        <Row gap={2}>
+          {error && <Text size="sm" tone="danger">{error}</Text>}
         </Row>
         <ApiErrorCallout error={save.error} title="Not saved" />
         <Row gap={2} justify="end">
@@ -319,7 +341,7 @@ export function TaxAssetPage() {
       ),
     },
     { key: 'closing', header: 'Closing value', numeric: true, render: (r) => <Amount value={r.closingValue} currency={a.currency} /> },
-    { key: 'review', header: 'Review', render: (r) => <Stack gap={1}><ReviewBadge status={r.review.status} />{r.review.claimedAmount && <Text size="xs" tone="muted" as="span">claimed {r.review.claimedAmount}</Text>}</Stack> },
+    { key: 'review', header: 'Review', render: (r) => <Stack gap={1}><ReviewBadge status={r.review.status} />{r.review.claimedAmount && <Text size="xs" tone="muted" as="span">claimed {r.review.claimedAmount}</Text>}{r.review.balancingClaimedAmount && <Text size="xs" tone="muted" as="span">balancing claimed {r.review.balancingClaimedAmount}</Text>}</Stack> },
     { key: 'edit', header: '', render: (r) => (r.yearStatus === 'FILED' ? null : <Button size="sm" variant="ghost" onClick={() => setEditingYear(r.taxYear)}>Edit year</Button>) },
   ];
   const editingRow = s.rows.find((r) => r.taxYear === editingYear);

@@ -32,6 +32,10 @@ export const TAX_NOTES = [
   'Evidence is stored as links only; Money keeps no files.',
 ];
 
+/** Thrown inside a transaction when the item's year changed between the unlocked read and the row lock; never escapes runOnItem */
+class ItemMovedSignal extends Error {}
+const MAX_MOVE_RETRIES = 5;
+
 type SourceRef = { transactionId?: string; upTransactionId?: string };
 
 /** Source refs in a stable order, so writers linking several sources take their source locks in the same order */
@@ -107,15 +111,11 @@ export class TaxLedgerService {
 
   async update(user: CurrentUser, itemId: string, input: UpdateTaxItemInput): Promise<TaxItemView> {
     const data = parseInput(updateTaxItemSchema, input);
-    await this.uow.run(async (manager) => {
-      const current = isUuid(itemId) ? await this.repo.findItem(user.id, itemId, manager) : null;
-      if (!current) throw new NotFoundError(`Tax item ${itemId} not found`);
-      const target = data.taxYear ?? current.startYear;
-      // Lock both years in ascending order: the item leaves one and joins the other
-      for (const year of [...new Set([current.startYear, target])].sort((a, b) => a - b)) await this.lockWritableYear(user.id, year, manager);
-      const item = await this.repo.findItemForUpdate(user.id, itemId, manager);
-      if (!item) throw new NotFoundError(`Tax item ${itemId} not found`);
-      item.startYear = target;
+    await this.runOnItem(async (manager) => {
+      // Locks the item's current year and the target year: the item leaves one and joins the other
+      const item = await this.lockItem(user.id, itemId, data.taxYear, manager);
+      // No taxYear in the request keeps the item where it is now, not where it was first read
+      if (data.taxYear !== undefined) item.startYear = data.taxYear;
       if (data.kind !== undefined) item.kind = data.kind;
       if (data.category !== undefined) item.category = data.category;
       if (data.description !== undefined) item.description = data.description;
@@ -133,10 +133,8 @@ export class TaxLedgerService {
   }
 
   async delete(user: CurrentUser, itemId: string): Promise<{ deleted: true; linksRemoved: number; evidenceRemoved: number }> {
-    return this.uow.run(async (manager) => {
-      const item = isUuid(itemId) ? await this.repo.findItem(user.id, itemId, manager) : null;
-      if (!item) throw new NotFoundError(`Tax item ${itemId} not found`);
-      await this.lockWritableYear(user.id, item.startYear, manager);
+    return this.runOnItem(async (manager) => {
+      const item = await this.lockItem(user.id, itemId, undefined, manager);
       const links = await this.repo.listLinks(user.id, { itemIds: [item.id] }, manager);
       const evidence = await this.repo.listEvidence(user.id, { itemIds: [item.id] }, manager);
       await this.repo.deleteItem(user.id, item.id, manager);
@@ -150,7 +148,7 @@ export class TaxLedgerService {
   async link(user: CurrentUser, input: CreateLinkInput) {
     const data = parseInput(createLinkSchema, input);
     const owner = { itemId: data.itemId, assetId: data.assetId };
-    const linkId = await this.uow.run(async (manager) => {
+    const linkId = await this.runOnItem(async (manager) => {
       await this.lockOwner(user.id, owner, manager);
       return this.addLinkTo(user.id, owner, { transactionId: data.transactionId, upTransactionId: data.upTransactionId }, { allowShared: data.allowShared ?? false, note: data.note || null }, manager);
     });
@@ -158,7 +156,7 @@ export class TaxLedgerService {
   }
 
   async unlink(user: CurrentUser, linkId: string): Promise<{ deleted: true; itemId: string | null; assetId: string | null }> {
-    return this.uow.run(async (manager) => {
+    return this.runOnItem(async (manager) => {
       const link = isUuid(linkId) ? await this.repo.findLink(user.id, linkId, manager) : null;
       if (!link) throw new NotFoundError(`Tax link ${linkId} not found`);
       await this.lockOwner(user.id, { itemId: link.itemId ?? undefined, assetId: link.assetId ?? undefined }, manager);
@@ -172,7 +170,7 @@ export class TaxLedgerService {
   async addEvidence(user: CurrentUser, input: CreateEvidenceInput) {
     const data = parseInput(createEvidenceSchema, input);
     const owner = { itemId: data.itemId, assetId: data.assetId };
-    const id = await this.uow.run(async (manager) => {
+    const id = await this.runOnItem(async (manager) => {
       await this.lockOwner(user.id, owner, manager);
       return this.repo.addEvidence({ userId: user.id, itemId: owner.itemId ?? null, assetId: owner.assetId ?? null, label: data.label, url: data.url, kind: (data.kind ?? 'OTHER') as EvidenceKind }, manager);
     });
@@ -181,7 +179,7 @@ export class TaxLedgerService {
   }
 
   async removeEvidence(user: CurrentUser, evidenceId: string): Promise<{ deleted: true; itemId: string | null; assetId: string | null }> {
-    return this.uow.run(async (manager) => {
+    return this.runOnItem(async (manager) => {
       const evidence = isUuid(evidenceId) ? await this.repo.findEvidence(user.id, evidenceId, manager) : null;
       if (!evidence) throw new NotFoundError(`Evidence link ${evidenceId} not found`);
       await this.lockOwner(user.id, { itemId: evidence.itemId ?? undefined, assetId: evidence.assetId ?? undefined }, manager);
@@ -248,14 +246,41 @@ export class TaxLedgerService {
 
   private async lockOwner(userId: string, owner: { itemId?: string; assetId?: string }, manager: EntityManager): Promise<void> {
     if (owner.itemId) {
-      const item = isUuid(owner.itemId) ? await this.repo.findItem(userId, owner.itemId, manager) : null;
-      if (!item) throw new NotFoundError(`Tax item ${owner.itemId} not found`);
-      await this.lockWritableYear(userId, item.startYear, manager);
-      await this.repo.findItemForUpdate(userId, item.id, manager);
+      await this.lockItem(userId, owner.itemId, undefined, manager);
       return;
     }
     const asset = isUuid(owner.assetId as string) ? await this.repo.findAssetForUpdate(userId, owner.assetId as string, manager) : null;
     if (!asset) throw new NotFoundError(`Asset ${owner.assetId} not found`);
+  }
+
+  /**
+   * Locks an item for a write: its year (and `targetYear`, when it moves),
+   * then the item row, refusing filed years. The lock order puts the year
+   * first, but which year is only known from an unlocked read; a concurrent
+   * move can change it while this waits. So once the item row is held (and no
+   * one else can move it), its year is checked again. If it moved, the
+   * transaction is retried by runOnItem, which then locks the new year.
+   */
+  private async lockItem(userId: string, itemId: string, targetYear: number | undefined, manager: EntityManager): Promise<TaxItemEntity> {
+    const seen = isUuid(itemId) ? await this.repo.findItem(userId, itemId, manager) : null;
+    if (!seen) throw new NotFoundError(`Tax item ${itemId} not found`);
+    for (const year of [...new Set([seen.startYear, targetYear ?? seen.startYear])].sort((a, b) => a - b)) await this.lockWritableYear(userId, year, manager);
+    const item = await this.repo.findItemForUpdate(userId, itemId, manager);
+    if (!item) throw new NotFoundError(`Tax item ${itemId} not found`);
+    if (item.startYear !== seen.startYear) throw new ItemMovedSignal();
+    return item;
+  }
+
+  /** Runs a write that locks an item, retrying the whole transaction when the item moved year under it */
+  private async runOnItem<T>(work: (manager: EntityManager) => Promise<T>): Promise<T> {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await this.uow.run(work);
+      } catch (error) {
+        if (!(error instanceof ItemMovedSignal)) throw error;
+        if (attempt >= MAX_MOVE_RETRIES) throw new ConflictError('That tax item kept moving between years while this change waited. Try again.');
+      }
+    }
   }
 
   private async linkResult(userId: string, linkId: string) {

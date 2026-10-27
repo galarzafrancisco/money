@@ -109,7 +109,7 @@ function row(overrides: Partial<DepreciationRow> = {}): DepreciationRow {
     balancingAdjustment: null,
     workings: 'Diminishing value: opening value 6249.00 × 50% × 233/365 days = 1994.54; deduction at 80% work use = 1595.63.',
     yearStatus: 'PREPARING',
-    review: { status: 'TO_REVIEW', claimedAmount: null, note: null, usePercentOverride: null },
+    review: { status: 'TO_REVIEW', claimedAmount: null, balancingClaimedAmount: null, note: null, usePercentOverride: null },
     filed: null,
     driftFromFiled: false,
     ...overrides,
@@ -244,7 +244,7 @@ describe('tax', () => {
 
   it('shows an asset\'s multi-year schedule and changes one year\'s work use', async () => {
     const client = fakeClient();
-    const rows = [row(), row({ taxYear: '2026-27', startYear: 2026, periodStart: '2026-07-01', daysHeld: 365, openingValue: '4254.46', decline: '2127.23', closingValue: '2127.23', usePercent: '60', usePercentSource: 'year', deduction: '1276.34', review: { status: 'TO_REVIEW', claimedAmount: null, note: null, usePercentOverride: '60' } })];
+    const rows = [row(), row({ taxYear: '2026-27', startYear: 2026, periodStart: '2026-07-01', daysHeld: 365, openingValue: '4254.46', decline: '2127.23', closingValue: '2127.23', usePercent: '60', usePercentSource: 'year', deduction: '1276.34', review: { status: 'TO_REVIEW', claimedAmount: null, balancingClaimedAmount: null, note: null, usePercentOverride: '60' } })];
     client.tax.getTaxAsset.mockResolvedValue(asset(rows));
     client.tax.setTaxAssetYear.mockResolvedValue(asset(rows));
     const { user } = renderApp('/tax/assets/a1', { client });
@@ -257,6 +257,24 @@ describe('tax', () => {
     await user.selectOptions(screen.getByLabelText('Review'), 'CONFIRMED');
     await user.click(screen.getByRole('button', { name: 'Save year' }));
     expect(client.tax.setTaxAssetYear).toHaveBeenCalledWith({ assetId: 'a1', taxYear: '2025-26', body: { usePercent: '90', status: 'CONFIRMED', claimedAmount: null } });
+  });
+
+  it('records the depreciation and the balancing adjustment actually claimed in a disposal year separately', async () => {
+    const client = fakeClient();
+    const disposal = row({
+      closingValue: '0.00',
+      balancingAdjustment: { terminationValue: '5000.00', adjustableValue: '4300.00', amount: '700.00', taxableAmount: '560.00' },
+    });
+    client.tax.getTaxAsset.mockResolvedValue(asset([disposal]));
+    client.tax.setTaxAssetYear.mockResolvedValue(asset([disposal]));
+    const { user } = renderApp('/tax/assets/a1', { client });
+    const table = await screen.findByRole('region', { name: 'Depreciation schedule' });
+    await user.click(within(table).getByRole('button', { name: 'Edit year' }));
+    await user.type(screen.getByLabelText('Depreciation claimed'), '1595.63');
+    await user.type(screen.getByLabelText('Balancing adjustment claimed'), '560');
+    expect(screen.getByText('Returned as assessable income')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Save year' }));
+    expect(client.tax.setTaxAssetYear).toHaveBeenCalledWith({ assetId: 'a1', taxYear: '2025-26', body: { usePercent: null, status: 'TO_REVIEW', claimedAmount: '1595.63', balancingClaimedAmount: '560' } });
   });
 
   it('flags a filed year whose figure differs from the recomputed one', async () => {

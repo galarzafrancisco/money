@@ -213,6 +213,10 @@ on first use), then the tax item or asset row, then, when linking a source
 transaction, a transaction-scoped advisory lock on that source
 (`tax_source:<user>:<tx|up>:<id>`, one per source, in sorted order when a
 create links several). Filing locks only the year's `tax_returns` row.
+An item writer learns the item's year from an unlocked read, so once it holds
+the item row it checks the year again: if a concurrent move changed it, the
+whole transaction is retried and locks the new year (`TaxLedgerService.lockItem`,
+`src/tax-locking.e2e.spec.ts`).
 Reading linked transactions takes no row lock.
 
 Postgres takes the ON DELETE SET NULL / CASCADE actions of a category delete

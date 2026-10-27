@@ -39,7 +39,7 @@ export type AssetLifecycle = 'NOT_IN_USE' | 'IN_USE' | 'WRITTEN_OFF' | 'DISPOSED
 
 export type ScheduleRowView = ScheduleRow & {
   yearStatus: TaxReturnStatus;
-  review: { status: ReviewStatus; claimedAmount: string | null; note: string | null; usePercentOverride: string | null };
+  review: { status: ReviewStatus; claimedAmount: string | null; balancingClaimedAmount: string | null; note: string | null; usePercentOverride: string | null };
   filed: { version: number; deduction: string | null } | null;
   /** The filed deduction differs from the one computed now */
   driftFromFiled: boolean;
@@ -177,14 +177,41 @@ export class TaxAssetsService {
       if (year < taxYearOf(asset.acquiredOn)) throw new ValidationError(`${asset.name} was acquired on ${asset.acquiredOn}, after ${taxYearLabel(year)}`);
       const row =
         (await this.repo.findAssetYear(user.id, asset.id, year, manager)) ??
-        Object.assign(new TaxAssetYearEntity(), { id: randomUUID(), userId: user.id, assetId: asset.id, startYear: year, usePercent: null, status: 'TO_REVIEW', claimedAmount: null, note: null });
+        Object.assign(new TaxAssetYearEntity(), { id: randomUUID(), userId: user.id, assetId: asset.id, startYear: year, usePercent: null, status: 'TO_REVIEW', claimedAmount: null, balancingClaimedAmount: null, note: null });
       if (data.usePercent !== undefined) row.usePercent = data.usePercent ?? null;
       if (data.status !== undefined) row.status = data.status;
       if (data.claimedAmount !== undefined) row.claimedAmount = data.claimedAmount ?? null;
+      if (data.balancingClaimedAmount !== undefined) row.balancingClaimedAmount = data.balancingClaimedAmount ?? null;
+      this.checkClaimedFigures(asset, row);
       if (data.note !== undefined) row.note = data.note || null;
       await this.repo.saveAssetYear(row, manager);
     });
     return this.get(user, assetId);
+  }
+
+  /**
+   * Each claimed figure must have a position to land on: the decline-in-value
+   * claim needs a year with a decline, the balancing claim a year with a
+   * balancing adjustment. Otherwise it would be stored but never appear in a
+   * summary or filing.
+   */
+  private checkClaimedFigures(asset: TaxAssetEntity, record: TaxAssetYearEntity): void {
+    if (record.claimedAmount === null && record.balancingClaimedAmount === null) return;
+    const row = depreciationSchedule(inputOf(asset, new Map()), record.startYear).rows.find((r) => r.startYear === record.startYear);
+    const label = taxYearLabel(record.startYear);
+    const hasBalancing = !!row?.balancingAdjustment && !dec(row.balancingAdjustment.amount).isZero();
+    const hasDecline = !!row && !(hasBalancing && dec(row.openingValue).isZero() && dec(row.decline).isZero());
+    if (record.balancingClaimedAmount !== null && !hasBalancing) {
+      throw new ValidationError(`${asset.name} has no balancing adjustment in ${label}, so there is nothing to record balancingClaimedAmount against`, { taxYear: label });
+    }
+    if (record.claimedAmount !== null && !hasDecline) {
+      throw new ValidationError(
+        hasBalancing
+          ? `${asset.name} has no decline in value left in ${label}; record what you returned for the disposal as balancingClaimedAmount`
+          : `${asset.name} has no depreciation in ${label}, so there is nothing to record claimedAmount against`,
+        { taxYear: label },
+      );
+    }
   }
 
   // ---- shared with TaxYearsService ----
@@ -210,7 +237,7 @@ export class TaxAssetsService {
         disposalProceeds: v.disposalProceeds,
         notes: v.notes,
       };
-      return assetPositions({ id: v.id, name: v.name, category: v.category, currency: v.currency, links: v.links, evidence: v.evidence, notes: v.notes, fact }, row, { status: row.review.status, claimedAmount: row.review.claimedAmount, note: row.review.note });
+      return assetPositions({ id: v.id, name: v.name, category: v.category, currency: v.currency, links: v.links, evidence: v.evidence, notes: v.notes, fact }, row, { status: row.review.status, claimedAmount: row.review.claimedAmount, balancingClaimedAmount: row.review.balancingClaimedAmount, note: row.review.note });
     });
   }
 
@@ -253,7 +280,7 @@ export class TaxAssetsService {
         return {
           ...row,
           yearStatus: yearStatus.get(row.startYear) ?? 'PREPARING',
-          review: { status: record?.status ?? 'TO_REVIEW', claimedAmount: moneyOrNull(record?.claimedAmount), note: record?.note ?? null, usePercentOverride: record?.usePercent ? percentText(record.usePercent) : null },
+          review: { status: record?.status ?? 'TO_REVIEW', claimedAmount: moneyOrNull(record?.claimedAmount), balancingClaimedAmount: moneyOrNull(record?.balancingClaimedAmount), note: record?.note ?? null, usePercentOverride: record?.usePercent ? percentText(record.usePercent) : null },
           filed,
           driftFromFiled: filed !== null && filed.deduction !== row.deduction,
         };

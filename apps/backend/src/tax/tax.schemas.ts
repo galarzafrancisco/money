@@ -233,7 +233,10 @@ export type UpdateTaxAssetInput = z.input<typeof updateTaxAssetSchema>;
 export const assetYearShape = {
   usePercent: percent('Work/business use percentage for this year; null falls back to the asset\'s default').nullish(),
   status: z.enum(REVIEW_STATUSES).optional().describe('Review state of this year\'s depreciation claim'),
-  claimedAmount: nonNegative('What you actually claimed for this asset in this year; null clears it').nullish(),
+  claimedAmount: nonNegative('What you actually claimed for this asset\'s decline in value in this year; null clears it').nullish(),
+  balancingClaimedAmount: nonNegative(
+    'Disposal years only: what you actually returned for the balancing adjustment, as a positive amount (assessable income or a deduction, as the schedule labels it); null clears it',
+  ).nullish(),
   note: text(2000).nullish(),
 };
 export const assetYearSchema = z

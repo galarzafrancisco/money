@@ -128,6 +128,7 @@ export class TaxLedger1762500000000 implements MigrationInterface {
         "use_percent" numeric(30,10),
         "status" varchar(12) NOT NULL DEFAULT 'TO_REVIEW',
         "claimed_amount" numeric(30,10),
+        "balancing_claimed_amount" numeric(30,10),
         "note" text,
         "created_at" timestamptz NOT NULL DEFAULT now(),
         "updated_at" timestamptz NOT NULL DEFAULT now(),
@@ -135,6 +136,7 @@ export class TaxLedger1762500000000 implements MigrationInterface {
         CONSTRAINT "CK_tax_asset_years_status" CHECK ("status" IN ('TO_REVIEW', 'CONFIRMED', 'EXCLUDED')),
         CONSTRAINT "CK_tax_asset_years_use" CHECK ("use_percent" IS NULL OR ("use_percent" >= 0 AND "use_percent" <= 100)),
         CONSTRAINT "CK_tax_asset_years_claimed" CHECK ("claimed_amount" IS NULL OR "claimed_amount" >= 0),
+        CONSTRAINT "CK_tax_asset_years_balancing_claimed" CHECK ("balancing_claimed_amount" IS NULL OR "balancing_claimed_amount" >= 0),
         CONSTRAINT "FK_tax_asset_years_asset" FOREIGN KEY ("asset_id", "user_id") REFERENCES "tax_assets" ("id", "user_id") ON DELETE CASCADE
       )`);
     await queryRunner.query(`CREATE INDEX "IDX_tax_asset_years_user" ON "tax_asset_years" ("user_id")`);
