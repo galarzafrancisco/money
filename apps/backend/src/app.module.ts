@@ -44,6 +44,10 @@ import { UsersService } from './users/users.service';
 import { SearchService } from './search/search.service';
 import { SplitsRepository } from './splits/splits.repository';
 import { SplitsService } from './splits/splits.service';
+import { TaxAssetsService } from './tax/tax-assets.service';
+import { TaxLedgerService } from './tax/tax-ledger.service';
+import { TaxYearsService } from './tax/tax-years.service';
+import { TaxRepository } from './tax/tax.repository';
 import { UpApiClient } from './up/up-api.client';
 import { UpSyncService, UP_API_CLIENT } from './up/up-sync.service';
 import { UpVault } from './up/up-vault';
@@ -129,6 +133,10 @@ export class AppModule implements NestModule {
         PriceStoreRepository,
         SplitsRepository,
         SplitsService,
+        TaxRepository,
+        TaxLedgerService,
+        TaxAssetsService,
+        TaxYearsService,
         MarketPricesService,
         PriceHistoryService,
         ValuationsRepository,

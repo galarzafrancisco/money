@@ -6,6 +6,8 @@ import { addDays } from '../market-prices/market-calendar';
 import { TransactionsService } from '../transactions/transactions.service';
 import type { RecordTransactionInput } from '../transactions/transactions.schemas';
 import { TransfersService } from '../transfers/transfers.service';
+import { TaxAssetsService } from '../tax/tax-assets.service';
+import { TaxLedgerService } from '../tax/tax-ledger.service';
 import { UsersRepository } from '../users/users.repository';
 import type { CurrentUser } from '../users/users.service';
 import { SEED_MARKER, SEED_SUBJECT_PREFIX, type SeedUser } from './seed-dataset';
@@ -29,6 +31,8 @@ export type SeededUser = {
   categories: Record<string, string>;
   transactions: number;
   transfers: number;
+  taxItems: number;
+  taxAssets: number;
 };
 
 /**
@@ -47,6 +51,8 @@ export class SeedRunner {
     private readonly categories: CategoriesService,
     private readonly transactions: TransactionsService,
     private readonly transfers: TransfersService,
+    private readonly taxLedger: TaxLedgerService,
+    private readonly taxAssets: TaxAssetsService,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -57,6 +63,8 @@ export class SeedRunner {
       app.get(CategoriesService),
       app.get(TransactionsService),
       app.get(TransfersService),
+      app.get(TaxLedgerService),
+      app.get(TaxAssetsService),
       app.get(DataSource),
     );
   }
@@ -163,7 +171,40 @@ export class SeedRunner {
       transactions++;
     }
 
-    return { key: data.key, purpose: data.purpose, userId: user.id, issuer, subject, accounts: accountIds, categories: categoryIds, transactions, transfers };
+    // Tax records last, so their links can name the keyed transactions
+    const tax = data.tax ?? { items: [], assets: [] };
+    for (const item of tax.items) {
+      await this.taxLedger.create(user, {
+        description: item.description,
+        category: item.category,
+        kind: item.kind,
+        date: addDays(anchor, -item.daysAgo),
+        amount: item.amount,
+        claimPercent: item.claimPercent,
+        status: item.status,
+        rationale: item.rationale,
+        notes: marked('Example tax item'),
+        links: item.link ? [{ transactionId: required(lotIds, item.link, 'transaction') }] : undefined,
+        evidence: item.evidence,
+      });
+    }
+    for (const asset of tax.assets) {
+      await this.taxAssets.create(user, {
+        name: asset.name,
+        cost: asset.cost,
+        acquiredOn: addDays(anchor, -asset.daysAgo),
+        firstUsedOn: asset.usedDaysAgo === undefined ? undefined : addDays(anchor, -asset.usedDaysAgo),
+        method: asset.method,
+        effectiveLifeYears: asset.effectiveLifeYears,
+        defaultUsePercent: asset.defaultUsePercent,
+        ownership: asset.ownership,
+        notes: marked('Example depreciating asset'),
+        links: asset.link ? [{ transactionId: required(lotIds, asset.link, 'transaction') }] : undefined,
+        evidence: asset.evidence,
+      });
+    }
+
+    return { key: data.key, purpose: data.purpose, userId: user.id, issuer, subject, accounts: accountIds, categories: categoryIds, transactions, transfers, taxItems: tax.items.length, taxAssets: tax.assets.length };
   }
 
   private async findUser(issuer: string, subject: string): Promise<CurrentUser | null> {
@@ -179,9 +220,13 @@ export class SeedRunner {
   private async assertOnlySynthetic(user: CurrentUser): Promise<void> {
     const accounts = await this.accounts.list(user);
     const categories = await this.categories.list(user);
+    const taxItems = (await this.taxLedger.list(user)).items;
+    const taxAssets = (await this.taxAssets.list(user)).assets;
     const real = [
       ...accounts.filter((a) => !a.description?.startsWith(SEED_MARKER)).map((a) => `account "${a.name}"`),
       ...categories.filter((c) => !c.description?.startsWith(SEED_MARKER)).map((c) => `category "${c.name}"`),
+      ...taxItems.filter((i) => !i.notes?.startsWith(SEED_MARKER)).map((i) => `tax item "${i.description}"`),
+      ...taxAssets.filter((a) => !a.notes?.startsWith(SEED_MARKER)).map((a) => `tax asset "${a.name}"`),
     ];
     if (real.length > 0) {
       throw new SeedRefusedError(
@@ -200,8 +245,8 @@ export class SeedRunner {
    */
   private async deleteRecords(user: CurrentUser): Promise<void> {
     await this.dataSource.transaction(async (manager) => {
-      for (const table of ['transfers', 'transactions', 'accounts', 'categories', 'valuation_days', 'valuation_recompute_requests']) {
-        // Transfer legs, lot allocations, holding categories and valuation holdings cascade
+      for (const table of ['tax_returns', 'tax_items', 'tax_assets', 'transfers', 'transactions', 'accounts', 'categories', 'valuation_days', 'valuation_recompute_requests']) {
+        // Transfer legs, lot allocations, holding categories, valuation holdings, tax filings, links, evidence and asset years cascade
         await manager.query(`DELETE FROM "${table}" WHERE user_id = $1`, [user.id]);
       }
     });

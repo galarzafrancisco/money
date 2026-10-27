@@ -23,6 +23,7 @@ export type FakeClient = {
   up: Resource;
   accountGroups: Resource;
   search: Resource;
+  tax: Resource;
 };
 
 /** A stand-in for the generated client: every method is a vi.fn with an empty default */
@@ -60,6 +61,32 @@ export function fakeClient(): FakeClient {
       getAccountGroup: vi.fn(),
       updateAccountGroup: vi.fn(),
       deleteAccountGroup: vi.fn(),
+    },
+    tax: {
+      listTaxYears: resolve({ currentTaxYear: '2026-27', years: [], notes: [] }),
+      getTaxYear: vi.fn(),
+      updateTaxYear: vi.fn(),
+      getTaxYearReport: vi.fn(),
+      fileTaxYear: vi.fn(),
+      reopenTaxYear: vi.fn(),
+      getTaxFiling: vi.fn(),
+      listTaxItems: resolve({ items: [], notes: [] }),
+      createTaxItem: vi.fn(),
+      getTaxItem: vi.fn(),
+      updateTaxItem: vi.fn(),
+      deleteTaxItem: vi.fn(),
+      linkTaxTransaction: vi.fn(),
+      unlinkTaxTransaction: vi.fn(),
+      addTaxEvidence: vi.fn(),
+      removeTaxEvidence: vi.fn(),
+      listTaxCategories: resolve({ suggested: [{ category: 'self-education', kind: 'DEDUCTION', label: 'Self-education' }], notes: [] }),
+      listTaxAssets: resolve({ currentTaxYear: '2026-27', assets: [], notes: [] }),
+      registerTaxAsset: vi.fn(),
+      getTaxAsset: vi.fn(),
+      updateTaxAsset: vi.fn(),
+      deleteTaxAsset: vi.fn(),
+      getDepreciationSchedule: vi.fn(),
+      setTaxAssetYear: vi.fn(),
     },
     up: {
       getUpStatus: resolve({ configured: true, status: 'none', webhookStatus: 'none', connectedAt: null, lastSyncAt: null, lastError: null, accounts: { total: 0, visible: 0, hidden: 0 }, hint: null }),

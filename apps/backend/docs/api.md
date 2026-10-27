@@ -24,7 +24,8 @@ service's zod query or body schema, and a response schema from
 `<domain>.responses.ts`. The client's resources follow the tags:
 
 - `money.accounts`, `transactions`, `lots`, `transfers`, `categories`;
-- `money.reports`, `portfolio`, `prices`, `valuations`, `stock-splits`, `users`.
+- `money.reports`, `portfolio`, `prices`, `valuations`, `stock-splits`, `users`;
+- `money.tax` (tax ledger, asset register and financial-year returns).
 
 `POST /api/accounts/:id/transactions` appears as a single flattened
 `RecordTransactionRequest`: a `type` enum plus every type's fields. The
@@ -109,6 +110,8 @@ reversal.
 Subaccounts, categories and the reports, including roll-up, effective-category
 and FX semantics, are described in [categories.md](categories.md).
 
+Tax ledger and depreciating assets (`/api/tax/*`: items, transaction links, evidence URLs, assets and their schedules, financial-year summaries, reports, filing snapshots and amendments) are described in [tax.md](tax.md), with the full route table there.
+
 Logical account groups (your own buckets over Money and Up accounts, one group per account) are described in [account-groups.md](account-groups.md): `/api/account-groups` and the `*_account_group(s)` MCP tools.
 
 Name search (read-only, resolve a name to an ID before querying transactions):
@@ -155,6 +158,10 @@ none of them takes a user argument.
 | `search_transactions` | `GET /api/search/transactions` (see [search.md](search.md#transaction-search)) |
 | `search_merchants`, `search_accounts` | `GET /api/search/merchants`, `/accounts` (see [search.md](search.md)); hand `merchantKey` to `list_up_transactions` |
 | `get_market_price` | `GET /api/market-prices/:symbol` |
+| `list_tax_categories`, `create_tax_item`, `list_tax_items`, `get_tax_item`, `update_tax_item`, `delete_tax_item` | `/api/tax/categories`, `/api/tax/items` (see [tax.md](tax.md)) |
+| `link_tax_transaction`, `unlink_tax_transaction`, `add_tax_evidence`, `remove_tax_evidence` | `POST/DELETE /api/tax/links`, `/api/tax/evidence` |
+| `register_tax_asset`, `list_tax_assets`, `get_tax_asset`, `get_depreciation_schedule`, `update_tax_asset`, `set_tax_asset_year`, `delete_tax_asset` | `/api/tax/assets` routes |
+| `list_tax_years`, `get_tax_year_summary`, `get_tax_year_report`, `update_tax_year`, `file_tax_year`, `reopen_tax_year`, `get_tax_filing` | `/api/tax/years` routes |
 
 Results are JSON text content. Domain errors come back as `isError: true` with
 the same `{ error: { code, message, details } }` body that REST returns.
@@ -169,6 +176,6 @@ the same `{ error: { code, message, details } }` body that REST returns.
 | 403 | `csrf_failed` | Unsafe request with the session cookie but without the right `X-CSRF-Token` |
 | 503 | `auth_unavailable` | Taico unreachable while renewing a session's token; the session is kept |
 | 404 | `not_found` | Doesn't exist, **or belongs to another user** |
-| 409 | `conflict` | Duplicate account name among siblings or duplicate category name; deleting an account that has transactions, subaccounts or transfers; editing or deleting a transfer leg directly; a cycle or nesting deeper than 5 levels; deleting an assigned category without `unassign`; deleting a purchase that sales allocate shares from (`details.saleTransactionIds`) |
+| 409 | `conflict` | A tax write into a filed year (reopen it first); filing with positions still `TO_REVIEW`; linking a transaction that would count a purchase twice (`details.linkedTo`); duplicate account name among siblings or duplicate category name; deleting an account that has transactions, subaccounts or transfers; editing or deleting a transfer leg directly; a cycle or nesting deeper than 5 levels; deleting an assigned category without `unassign`; deleting a purchase that sales allocate shares from (`details.saleTransactionIds`) |
 | 422 | `ledger_violation` | The change would make cash negative, oversell, or mix currencies for a ticker, or a sale's lot allocations would not fit (unknown lot, other ticker, bought after the sale, not enough left). For transfers, `details.side` says which account (`source`/`destination`). |
 | 502 | `upstream_unavailable` | The price provider failed |

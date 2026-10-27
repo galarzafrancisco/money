@@ -19,6 +19,10 @@ import { AccountTransactions } from '../features/transactions/AccountTransaction
 import { RecordActivityPage } from '../features/transactions/RecordActivityPage';
 import { TransactionDetail } from '../features/transactions/TransactionDetail';
 import { AccountTransfers } from '../features/transfers/AccountTransfers';
+import { NewTaxAssetPage, TaxAssetPage, TaxAssetsPage } from '../features/tax/TaxAssetPages';
+import { NewTaxItemPage, TaxItemPage, TaxItemsPage } from '../features/tax/TaxItemPages';
+import { TaxYearPage } from '../features/tax/TaxYearPage';
+import { TaxYearsPage } from '../features/tax/TaxYearsPage';
 import { ButtonLink, EmptyState } from '../ui';
 
 /** One route tree for every screen size (guidelines §3.1). Every section is a URL. */
@@ -46,6 +50,14 @@ export function AppRoutes() {
         <Route path="record" element={<RecordActivityPage />} />
       </Route>
       <Route path="/search" element={<SearchPage />} />
+      <Route path="/tax" element={<TaxYearsPage />} />
+      <Route path="/tax/years/:taxYear" element={<TaxYearPage />} />
+      <Route path="/tax/items" element={<TaxItemsPage />} />
+      <Route path="/tax/items/new" element={<NewTaxItemPage />} />
+      <Route path="/tax/items/:itemId" element={<TaxItemPage />} />
+      <Route path="/tax/assets" element={<TaxAssetsPage />} />
+      <Route path="/tax/assets/new" element={<NewTaxAssetPage />} />
+      <Route path="/tax/assets/:assetId" element={<TaxAssetPage />} />
       <Route path="/categories" element={<CategoriesPage />} />
       <Route path="/connections" element={<ConnectionsPage />} />
       <Route path="*" element={<EmptyState title="Page not found" action={<ButtonLink to="/accounts">Go to accounts</ButtonLink>} />} />

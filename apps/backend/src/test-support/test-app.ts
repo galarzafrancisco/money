@@ -45,7 +45,8 @@ export type TokenOptions = {
  * Starts an in-memory PGlite in a child process, reachable over the Postgres
  * protocol. Each test file gets its own empty database.
  */
-async function startDatabase(): Promise<{ url: string; stop: () => Promise<void> }> {
+/** Starts test/pglite-server.mjs (an in-memory PGlite behind the Postgres wire protocol) in a child process */
+export async function startPgliteServer(): Promise<{ url: string; stop: () => Promise<void> }> {
   const child: ChildProcess = fork(join(__dirname, '..', '..', 'test', 'pglite-server.mjs'), [], { stdio: ['ignore', 'inherit', 'inherit', 'ipc'] });
   const address = await new Promise<string>((resolve, reject) => {
     child.once('message', (message: { address: string }) => resolve(message.address));
@@ -129,7 +130,7 @@ export type TestAppOptions = {
 export async function createTestApp(options: TestAppOptions = {}): Promise<TestApp> {
   const database = process.env.TEST_POSTGRES_URL
     ? await startPostgresDatabase(process.env.TEST_POSTGRES_URL)
-    : { ...(await startDatabase()), poolMax: 1 };
+    : { ...(await startPgliteServer()), poolMax: 1 };
   const { publicKey, privateKey } = await generateKeyPair('RS256');
   const foreign = await generateKeyPair('RS256');
   const kid = 'test-key';

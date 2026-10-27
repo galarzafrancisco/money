@@ -180,6 +180,36 @@ describe('REST responses match the OpenAPI response schemas', () => {
     await call('get', '/api/search/accounts?q=manual&visibility=all');
     const txSearch = await call('get', '/api/search/transactions?visibility=all&limit=2');
     expect(txSearch.summary.totalCount).toBeGreaterThan(0);
+
+    // Tax ledger and asset register
+    await call('get', '/api/tax/categories');
+    const taxItem = await call('post', '/api/tax/items', { description: 'Conference', date: '2024-03-20', amount: '500', claimPercent: '50', evidence: [{ label: 'Receipt', url: 'https://example.com/r.pdf' }] });
+    await call('patch', `/api/tax/items/${taxItem.id}`, { status: 'CONFIRMED', claimedAmount: '250' });
+    const taxLink = await call('post', '/api/tax/links', { itemId: taxItem.id, upTransactionId: upTransactions.items[0].id });
+    await call('delete', `/api/tax/links/${taxLink.id}`);
+    const evidence = await call('post', '/api/tax/evidence', { itemId: taxItem.id, label: 'Invoice', url: 'https://example.com/i.pdf', kind: 'INVOICE' });
+    await call('delete', `/api/tax/evidence/${evidence.id}`);
+    await call('get', `/api/tax/items/${taxItem.id}`);
+    await call('get', '/api/tax/items?taxYear=2023-24&status=CONFIRMED');
+    const asset = await call('post', '/api/tax/assets', { name: 'Workstation', cost: '3000', acquiredOn: '2023-08-01', firstUsedOn: '2023-08-01', method: 'PRIME_COST', effectiveLifeYears: '3', links: [{ transactionId: deposit.id }] });
+    await call('put', `/api/tax/assets/${asset.id}/years/2023-24`, { status: 'CONFIRMED', usePercent: '75' });
+    await call('patch', `/api/tax/assets/${asset.id}`, { disposedOn: '2025-12-31', disposalProceeds: '500' });
+    await call('get', `/api/tax/assets/${asset.id}?throughYear=2026-27`);
+    await call('get', `/api/tax/assets/${asset.id}/schedule`);
+    await call('get', '/api/tax/assets');
+    await call('patch', '/api/tax/years/2023-24', { notes: 'Ready' });
+    await call('post', '/api/tax/years/2023-24/filings', { filedOn: '2024-10-01', reference: 'R-1' });
+    await call('post', '/api/tax/years/2023-24/amendment', { reason: 'Correction' });
+    await call('post', '/api/tax/years/2023-24/filings', { filedOn: '2024-11-01' });
+    await call('get', '/api/tax/years/2023-24');
+    await call('get', '/api/tax/years/2023-24/filings/1');
+    await call('get', '/api/tax/years/2023-24/report?version=1');
+    await call('get', '/api/tax/years');
+    const scratch = await call('post', '/api/tax/items', { description: 'Scratch', taxYear: '2025-26' });
+    await call('delete', `/api/tax/items/${scratch.id}`);
+    const scratchAsset = await call('post', '/api/tax/assets', { name: 'Scratch', cost: '1', acquiredOn: '2025-08-01', method: 'IMMEDIATE' });
+    await call('delete', `/api/tax/assets/${scratchAsset.id}`);
+
     await call('delete', '/api/up/connection?purge=true');
 
     const all = routes.map((r) => r.options!.operationId).sort();

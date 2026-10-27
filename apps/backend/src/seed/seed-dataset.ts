@@ -63,6 +63,32 @@ export type SeedActivity =
       input: Omit<CreateTransferInput, 'fromAccountId' | 'toAccountId' | 'date'>;
     });
 
+/** A tax item; `link` names a keyed transaction of the same user */
+export type SeedTaxItem = Dated & {
+  description: string;
+  category: string;
+  kind?: 'DEDUCTION' | 'INCOME' | 'OFFSET' | 'OTHER';
+  amount?: string;
+  claimPercent?: string;
+  status?: 'TO_REVIEW' | 'CONFIRMED' | 'EXCLUDED';
+  rationale?: string;
+  link?: string;
+  evidence?: { label: string; url: string; kind?: 'RECEIPT' | 'INVOICE' | 'CALCULATION' | 'STATEMENT' | 'OTHER' }[];
+};
+
+/** A depreciating asset, acquired `daysAgo` and first used `usedDaysAgo` */
+export type SeedTaxAsset = Dated & {
+  name: string;
+  cost: string;
+  usedDaysAgo?: number;
+  method: 'PRIME_COST' | 'DIMINISHING_VALUE' | 'IMMEDIATE';
+  effectiveLifeYears?: string;
+  defaultUsePercent: string;
+  ownership: string;
+  link?: string;
+  evidence?: SeedTaxItem['evidence'];
+};
+
 export type SeedUser = {
   key: string;
   subject: string;
@@ -75,6 +101,8 @@ export type SeedUser = {
   accounts: SeedAccount[];
   holdingCategories: { account: string; symbol: string; category: string }[];
   activity: SeedActivity[];
+  /** Tax ledger records (docs/tax.md). Their notes carry SEED_MARKER. */
+  tax?: { items: SeedTaxItem[]; assets: SeedTaxAsset[] };
 };
 
 const tx = (daysAgo: number, account: string, input: Extract<SeedActivity, { kind: 'transaction' }>['input'], key?: string): SeedActivity => ({
@@ -132,6 +160,9 @@ export const ALEX: SeedUser = {
     tx(200, 'bank', { type: 'DEPOSIT', currency: 'AUD', amount: '9000.00', description: 'Savings (synthetic)' }),
     tx(100, 'bank', { type: 'DEPOSIT', currency: 'AUD', amount: '9000.00', description: 'Savings (synthetic)' }),
     tx(30, 'bank', { type: 'WITHDRAWAL', currency: 'AUD', amount: '2500.00', description: 'Holiday (synthetic)' }),
+    // Paid from the bank, then remembered for tax (see tax below)
+    tx(220, 'bank', { type: 'WITHDRAWAL', currency: 'AUD', amount: '6249.00', description: 'Workstation purchase (synthetic)' }, 'dgx-spark'),
+    tx(45, 'bank', { type: 'WITHDRAWAL', currency: 'AUD', amount: '899.00', description: 'Conference ticket (synthetic)' }, 'conference'),
     transfer(355, 'bank', 'emergency', { fromCurrency: 'AUD', fromAmount: '15000.00', description: 'Fund the emergency bucket' }),
     transfer(355, 'bank', 'term', { fromCurrency: 'AUD', fromAmount: '10000.00', description: 'Open the term deposit' }),
     tx(175, 'term', { type: 'DEPOSIT', currency: 'AUD', amount: '350.00', description: 'Term deposit interest (synthetic)' }),
@@ -184,6 +215,37 @@ export const ALEX: SeedUser = {
     tx(80, 'super', { type: 'DEPOSIT', currency: 'AUD', amount: '2500.00', description: 'Employer contribution (synthetic)' }),
     tx(75, 'super', { type: 'BUY', symbol: 'VDHG.AX', currency: 'AUD', quantity: '8', unitPrice: '301.12', fees: '0' }),
   ],
+  tax: {
+    items: [
+      {
+        daysAgo: 47,
+        description: 'AI engineering conference ticket (synthetic)',
+        category: 'self-education',
+        amount: '899.00',
+        claimPercent: '50',
+        rationale: 'Half of the talks relate to my current work (synthetic example)',
+        link: 'conference',
+        evidence: [{ label: 'Receipt', url: 'https://example.invalid/receipts/conference.pdf', kind: 'RECEIPT' }],
+      },
+      { daysAgo: 100, description: 'Home internet, work share (synthetic)', category: 'phone-and-internet', amount: '960.00', claimPercent: '20', rationale: 'Work from home one day a week (estimate)' },
+      { daysAgo: 130, description: 'Tax agent fee (synthetic)', category: 'cost-of-managing-tax-affairs', amount: '330.00', status: 'CONFIRMED', evidence: [{ label: 'Invoice', url: 'https://example.invalid/invoices/agent.pdf', kind: 'INVOICE' }] },
+      { daysAgo: 160, description: 'Donation to a registered charity (synthetic)', category: 'donations', amount: '100.00' },
+    ],
+    assets: [
+      {
+        daysAgo: 220,
+        usedDaysAgo: 213,
+        name: 'AI workstation (synthetic DGX-style)',
+        cost: '6249.00',
+        method: 'DIMINISHING_VALUE',
+        effectiveLifeYears: '4',
+        defaultUsePercent: '80',
+        ownership: 'Owned by Alex; used for consulting work at home (synthetic)',
+        link: 'dgx-spark',
+        evidence: [{ label: 'Invoice', url: 'https://example.invalid/invoices/workstation.pdf', kind: 'INVOICE' }],
+      },
+    ],
+  },
 };
 
 /**

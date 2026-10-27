@@ -29,6 +29,18 @@ for money.
 
 Logical groups use `account_groups` and `account_group_members` (see [account-groups.md](account-groups.md)): a member is a Money account or an Up account, each in at most one group, with composite `(id, user_id)` FKs.
 
+Tax tables (see [tax.md](tax.md)): `tax_items` (positions per financial year,
+`start_year` 2026 = FY 2026-27), `tax_assets` and `tax_asset_years` (the
+asset register and per-year use %, review and claimed figure; depreciation is
+derived, never stored), `tax_source_links` (item or asset → Money or Up
+transaction, CHECKs for exactly one of each, `ON DELETE CASCADE` from the
+transaction), `tax_evidence_links` (URLs only), `tax_returns` (one per user,
+jurisdiction and year: `PREPARING`, `FILED`, `AMENDING`) and
+`tax_return_filings` (immutable jsonb snapshots, unique `(return_id,
+version)`, no `updated_at` because they are never changed). Every reference is
+a composite `(id, user_id)` FK, so the migration adds `UQ_transactions_id_user`
+and `UQ_up_transactions_id_user`.
+
 ### `categories`
 
 User-defined labels (`name` unique per user, case-insensitive; optional
@@ -194,6 +206,18 @@ Every writer takes locks in this order, and skips the ones it doesn't need:
    account update/delete; **both accounts of a transfer, in id order**; when a
    category is deleted, every account it affects (directly, or through a
    holding), in id order.
+
+Tax writers take no user, category or account lock. They lock, in this order:
+the `tax_returns` row of each affected financial year (ascending year; created
+on first use), then the tax item or asset row, then, when linking a source
+transaction, a transaction-scoped advisory lock on that source
+(`tax_source:<user>:<tx|up>:<id>`, one per source, in sorted order when a
+create links several). Filing locks only the year's `tax_returns` row.
+An item writer learns the item's year from an unlocked read, so once it holds
+the item row it checks the year again: if a concurrent move changed it, the
+whole transaction is retried and locks the new year (`TaxLedgerService.lockItem`,
+`src/tax-locking.e2e.spec.ts`).
+Reading linked transactions takes no row lock.
 
 Postgres takes the ON DELETE SET NULL / CASCADE actions of a category delete
 on the account rows. Without step 3 up front, a delete holding the category

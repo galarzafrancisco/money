@@ -24,7 +24,16 @@ export function dataSourceOptions(database: AppConfig['database']): DataSourceOp
       ...common,
       url: database.url,
       ssl: database.ssl ? { rejectUnauthorized: true } : false,
-      extra: { max: database.poolMax },
+      extra: {
+        max: database.poolMax,
+        // A one-connection pool is how PGlite is reached over its socket server
+        // (DATABASE_MODE=memory and the PGlite test suite). That server accepts
+        // one connection at a time and releases a closed one asynchronously, so
+        // if pg closed the idle connection (default after 10 s) and opened a new
+        // one, the new one could be refused and the request would fail with
+        // ECONNRESET. Keep the single connection open instead.
+        ...(database.poolMax === 1 ? { idleTimeoutMillis: 0 } : {}),
+      },
     };
   }
   if (database.driver === 'memory') {
