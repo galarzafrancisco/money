@@ -2,6 +2,17 @@ import type { AppConfig } from '../config/env.config';
 
 export type ResolvedDatabase = Exclude<AppConfig['database'], { driver: 'memory' }>;
 
+/**
+ * Connection slots on the PGlite socket server. The pool opens one
+ * connection, but the server frees a closed socket's slot only on a later
+ * tick: with a single slot, the pool's replacement connection (after pg drops
+ * a client on an error or idle close) can be refused with "Too many
+ * connections", failing the request and every one after it. Spare slots
+ * absorb that overlap. PGlite's query queue serializes queries either way
+ * and keeps an open transaction to its own connection.
+ */
+export const PGLITE_SOCKET_MAX_CONNECTIONS = 4;
+
 export type RunningDatabase = {
   database: ResolvedDatabase;
   /** Stops the embedded server, if one was started. All in-memory data is lost */
@@ -30,7 +41,8 @@ export async function startDatabase(database: AppConfig['database']): Promise<Ru
   const { PGlite } = await import('@electric-sql/pglite');
   const { PGLiteSocketServer } = await import('@electric-sql/pglite-socket');
   const db = await PGlite.create();
-  const server = new PGLiteSocketServer({ db, host: '127.0.0.1', port: 0 });
+  // Spare slots (see PGLITE_SOCKET_MAX_CONNECTIONS): the pool still uses one connection
+  const server = new PGLiteSocketServer({ db, host: '127.0.0.1', port: 0, maxConnections: PGLITE_SOCKET_MAX_CONNECTIONS });
   await server.start();
   const address = server.getServerConn();
 
