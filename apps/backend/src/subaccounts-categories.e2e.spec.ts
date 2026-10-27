@@ -299,7 +299,7 @@ describe('subaccounts, categories and reports', () => {
       const b = as(tokenB);
       const report = (await b.get('/api/reports/accounts').expect(200)).body;
       expect(JSON.stringify(report)).not.toContain(accountA);
-      expect(JSON.stringify(report)).not.toContain('777');
+      expect(report.totals.byCurrency).toEqual([]);
       const categories = (await b.get('/api/reports/categories').expect(200)).body;
       expect(JSON.stringify(categories)).not.toContain(categoryA);
       const list = (await b.get('/api/categories').expect(200)).body;
