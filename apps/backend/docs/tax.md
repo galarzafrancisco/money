@@ -220,38 +220,42 @@ can't miss a concurrent edit.
 
 ## Example journey (MCP)
 
+Tax operations are actions inside `tax_items`, `tax_assets`, or `tax_years`.
+Each call wraps the action and its arguments in `request`. References to
+individual operation names elsewhere in this guide refer to these actions.
+
 > "Add this conference purchase to next year's tax return, planning to claim
 > 100 % because it relates to my current work."
 
 ```jsonc
-// create_tax_item
-{ "description": "AI Engineering Conference ticket", "date": "2026-09-10", "amount": "899",
+// tax_items
+{ "request": { "action": "create_tax_item", "description": "AI Engineering Conference ticket", "date": "2026-09-10", "amount": "899",
   "category": "self-education", "claimPercent": "100",
-  "rationale": "Relates directly to my current work as an AI engineer" }
+  "rationale": "Relates directly to my current work as an AI engineer" } }
 // → { "id": "…", "taxYear": "2026-27", "proposedAmount": "899.00", "status": "TO_REVIEW",
 //     "gaps": ["needs-review", "no-evidence", "no-transaction"] }
 
 // Later: the payment cleared. search_transactions { "text": "conference" } finds it.
-// link_tax_transaction { "itemId": "…", "upTransactionId": "…" }
-// update_tax_item      { "itemId": "…", "claimPercent": "50" }        → proposedAmount "449.50"
-// add_tax_evidence     { "itemId": "…", "label": "Receipt", "url": "https://…", "kind": "RECEIPT" }
+// tax_items { "request": { "action": "link_tax_transaction", "itemId": "…", "upTransactionId": "…" } }
+// tax_items { "request": { "action": "update_tax_item", "itemId": "…", "claimPercent": "50" } } → proposedAmount "449.50"
+// tax_items { "request": { "action": "add_tax_evidence", "itemId": "…", "label": "Receipt", "url": "https://…", "kind": "RECEIPT" } }
 ```
 
 > "Register my DGX Spark."
 
 ```jsonc
-// register_tax_asset
-{ "name": "NVIDIA DGX Spark", "cost": "6249", "acquiredOn": "2025-11-03", "firstUsedOn": "2025-11-10",
+// tax_assets
+{ "request": { "action": "register_tax_asset", "name": "NVIDIA DGX Spark", "cost": "6249", "acquiredOn": "2025-11-03", "firstUsedOn": "2025-11-10",
   "method": "DIMINISHING_VALUE", "effectiveLifeYears": "4", "defaultUsePercent": "80",
   "ownership": "Owned by me; used for consulting and research at home",
-  "links": [{ "transactionId": "…" }] }
+  "links": [{ "transactionId": "…" }] } }
 // schedule.rows[0]: 2025-26, 233/365 days, decline 1994.54, deduction 1595.63 (80 %)
 
-// set_tax_asset_year { "assetId": "…", "taxYear": "2026-27", "usePercent": "60" }
+// tax_assets { "request": { "action": "set_tax_asset_year", "assetId": "…", "taxYear": "2026-27", "usePercent": "60" } }
 // → 2026-27: opening 4254.46, decline 2127.23, deduction 1276.34
 ```
 
-> "Show me my 2025-26 claims." `get_tax_year_summary { "taxYear": "2025-26" }`.
+> "Show me my 2025-26 claims." `tax_years { "request": { "action": "get_tax_year_summary", "taxYear": "2025-26" } }`.
 > Then review, record what you claimed, and `file_tax_year` once lodged.
 
 The same journey runs end to end in `src/tax.e2e.spec.ts`.

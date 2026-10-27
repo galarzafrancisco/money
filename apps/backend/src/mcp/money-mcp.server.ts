@@ -106,13 +106,26 @@ export class MoneyMcpServerFactory {
         instructions:
           `Personal investment tracking for the signed-in user: named accounts, multi-currency cash, FX conversions, transfers between accounts, share buys and sells, dividends with withholding tax, cost bases per parcel, and gains. ${PERSONAL_TRACKING} ` +
           'Imported Up bank accounts are accounts like any other: list_accounts, get_account and list_transactions include them (hidden ones too, with source "up"). get_accounts_report, get_categories_report and get_dashboard also include imported Up balances once each, with source "up". They show visible accounts by default; the visibility option widens that, and an explicit rootAccountId resolves a hidden Up account (removed Up accounts are always left out). list_up_accounts, list_up_transactions and list_account_groups give Up-specific detail. ' +
-          'Tax: create_tax_item remembers deductions or income for an Australian financial year ("2026-27"); register_tax_asset tracks depreciating assets; get_tax_year_summary shows the year\'s proposed claims and gaps. ' +
+          'Tax: tax_items tracks positions and evidence, tax_assets tracks depreciating assets, and tax_years manages financial years and filings. ' +
           'Amounts are decimal strings. Figures are not tax advice; see the notes returned by get_portfolio.',
       },
     );
     const read = { readOnlyHint: true };
     const write = { readOnlyHint: false, destructiveHint: false };
     const destructive = { readOnlyHint: false, destructiveHint: true };
+    // Collect tax operations into domain tools while retaining each operation's
+    // existing schema and service adapter. The discriminant makes the inputs
+    // discoverable without exposing every operation as a separate tool.
+    const taxOperations: Record<string, Array<{ name: string; schema: z.ZodObject<any>; run: (args: any) => Promise<unknown> }>> = {
+      tax_items: [], tax_assets: [], tax_years: [],
+    };
+    const taxGroup = (name: string) => {
+      if (name === 'get_depreciation_schedule' || name.includes('tax_asset')) return 'tax_assets';
+      if (name.includes('tax_year') || name === 'get_tax_filing') return 'tax_years';
+      if (name.includes('tax_')) return 'tax_items';
+      return undefined;
+    };
+    let collectingTax = false;
 
     const tool = <Shape extends z.ZodRawShape>(
       name: string,
@@ -121,6 +134,11 @@ export class MoneyMcpServerFactory {
       shape: Shape,
       run: (args: z.infer<z.ZodObject<Shape>>) => Promise<unknown>,
     ) => {
+      const group = collectingTax ? taxGroup(name) : undefined;
+      if (group) {
+        taxOperations[group].push({ name, schema: z.object({ action: z.literal(name), ...shape }).describe(description), run });
+        return;
+      }
       server.registerTool(name, { description, annotations, inputSchema: shape }, (async (args: z.infer<z.ZodObject<Shape>>) =>
         toResult(() => run(args))) as never);
     };
@@ -466,6 +484,7 @@ export class MoneyMcpServerFactory {
     tool('list_up_sync_runs', 'The last 20 Up syncs (audit trail)', read, {}, () => this.up.runs(user));
 
     // ---- Tax ledger and depreciating assets: tracking aids, not tax advice (docs/tax.md) ----
+    collectingTax = true;
     const NOT_ADVICE = 'Tracking aid, not tax advice: Money records intent and estimates; it never decides eligibility.';
     const itemId = z.string().describe('Tax item ID (from list_tax_items)');
     const assetId = z.string().describe('Asset ID (from list_tax_assets)');
@@ -570,6 +589,15 @@ export class MoneyMcpServerFactory {
     tool('get_tax_filing', 'The full snapshot of one filed version of a year (1 = original), with each position\'s detail as filed: rationale, notes, source transactions, evidence URLs and asset inputs', read, { taxYear: taxYearArg, version: z.string().describe('Filing version, e.g. "1"') }, ({ taxYear, version }) =>
       this.taxYears.filing(user, taxYear, version),
     );
+
+    collectingTax = false;
+    for (const [name, operations] of Object.entries(taxOperations)) {
+      const request = z.discriminatedUnion('action', operations.map((operation) => operation.schema) as [z.ZodObject<any>, z.ZodObject<any>, ...z.ZodObject<any>[]]);
+      tool(name, `Tax tracking operations; choose an action in request. ${NOT_ADVICE} Filing records a return lodged elsewhere.`, destructive, { request }, async ({ request }) => {
+        const { action, ...args } = request;
+        return operations.find((operation) => operation.name === action)!.run(args);
+      });
+    }
 
     return server;
   }

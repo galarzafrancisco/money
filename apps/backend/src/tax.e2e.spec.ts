@@ -427,20 +427,20 @@ describe('Tax ledger and depreciating assets', () => {
   });
 
   it('works from MCP: remember, review and summarise', async () => {
-    const created = await callTool(t, mcpA, 'create_tax_item', { description: 'GPU cloud credits', date: '2026-10-01', amount: 120, claimPercent: 100, category: 'work-related-expenses' });
+    const created = await callTool(t, mcpA, 'tax_items', { request: { action: 'create_tax_item', description: 'GPU cloud credits', date: '2026-10-01', amount: 120, claimPercent: 100, category: 'work-related-expenses' } });
     expect(created.isError).toBe(false);
     expect(created.data).toMatchObject({ taxYear: '2026-27', proposedAmount: '120.00' });
-    const updated = await callTool(t, mcpA, 'update_tax_item', { itemId: created.data.id, claimPercent: '50', status: 'CONFIRMED' });
+    const updated = await callTool(t, mcpA, 'tax_items', { request: { action: 'update_tax_item', itemId: created.data.id, claimPercent: '50', status: 'CONFIRMED' } });
     expect(updated.data).toMatchObject({ proposedAmount: '60.00', status: 'CONFIRMED' });
-    const summary = await callTool(t, mcpA, 'get_tax_year_summary', { taxYear: '2026-27' });
+    const summary = await callTool(t, mcpA, 'tax_years', { request: { action: 'get_tax_year_summary', taxYear: '2026-27' } });
     expect(summary.data.positions.map((p: any) => p.description)).toEqual(expect.arrayContaining(['AI Engineering Conference ticket', 'GPU cloud credits', 'Decline in value: NVIDIA DGX Spark (estimate)']));
-    const schedule = await callTool(t, mcpA, 'get_depreciation_schedule', { assetId: sparkId, throughYear: '2026-27' });
+    const schedule = await callTool(t, mcpA, 'tax_assets', { request: { action: 'get_depreciation_schedule', assetId: sparkId, throughYear: '2026-27' } });
     expect(schedule.data.rows.map((r: any) => r.deduction)).toEqual(['1595.63', '1276.34']);
-    const refused = await callTool(t, mcpA, 'link_tax_transaction', { itemId: created.data.id, transactionId: sparkTx.id });
+    const refused = await callTool(t, mcpA, 'tax_items', { request: { action: 'link_tax_transaction', itemId: created.data.id, transactionId: sparkTx.id } });
     expect(refused).toMatchObject({ isError: true, data: { error: { code: 'conflict' } } });
-    const notFound = await callTool(t, mcpA, 'get_tax_item', { itemId: 'not-a-uuid' });
+    const notFound = await callTool(t, mcpA, 'tax_items', { request: { action: 'get_tax_item', itemId: 'not-a-uuid' } });
     expect(notFound.data.error.code).toBe('not_found');
-    const report = await callTool(t, mcpA, 'get_tax_year_report', { taxYear: '2026-27' });
+    const report = await callTool(t, mcpA, 'tax_years', { request: { action: 'get_tax_year_report', taxYear: '2026-27' } });
     expect(report.data.markdown).toContain('GPU cloud credits');
   });
 

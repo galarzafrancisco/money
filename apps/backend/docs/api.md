@@ -158,10 +158,14 @@ none of them takes a user argument.
 | `search_transactions` | `GET /api/search/transactions` (see [search.md](search.md#transaction-search)) |
 | `search_merchants`, `search_accounts` | `GET /api/search/merchants`, `/accounts` (see [search.md](search.md)); hand `merchantKey` to `list_up_transactions` |
 | `get_market_price` | `GET /api/market-prices/:symbol` |
-| `list_tax_categories`, `create_tax_item`, `list_tax_items`, `get_tax_item`, `update_tax_item`, `delete_tax_item` | `/api/tax/categories`, `/api/tax/items` (see [tax.md](tax.md)) |
-| `link_tax_transaction`, `unlink_tax_transaction`, `add_tax_evidence`, `remove_tax_evidence` | `POST/DELETE /api/tax/links`, `/api/tax/evidence` |
-| `register_tax_asset`, `list_tax_assets`, `get_tax_asset`, `get_depreciation_schedule`, `update_tax_asset`, `set_tax_asset_year`, `delete_tax_asset` | `/api/tax/assets` routes |
-| `list_tax_years`, `get_tax_year_summary`, `get_tax_year_report`, `update_tax_year`, `file_tax_year`, `reopen_tax_year`, `get_tax_filing` | `/api/tax/years` routes |
+| `tax_items` | `/api/tax/categories`, `/api/tax/items`, `/api/tax/links`, `/api/tax/evidence` (see [tax.md](tax.md)) |
+| `tax_assets` | `/api/tax/assets` routes |
+| `tax_years` | `/api/tax/years` routes |
+
+Each tax tool accepts `request` with an `action` naming the operation and its
+arguments, for example `tax_years {"request":{"action":"get_tax_year_summary","taxYear":"2025-26"}}`.
+The tool schemas list all supported actions and their fields. These replace the
+former individual tax tools; clients must update their calls.
 
 Results are JSON text content. Domain errors come back as `isError: true` with
 the same `{ error: { code, message, details } }` body that REST returns.
